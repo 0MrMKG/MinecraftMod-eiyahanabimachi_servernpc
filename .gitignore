@@ -1,0 +1,23 @@
+# [索引: .gitignore]
+# 忽略 Gradle 缓存和本地运行数据
+.gradle/
+.gradle_caches/
+build/
+run/
+
+# 忽略 IDE 配置文件
+.idea/
+*.iml
+*.iws
+.project
+.settings/
+.classpath
+
+# 忽略日志和临时文件
+*.log
+bin/
+
+# 针对 Minecraft 模组开发的特定忽略 (如果是 Forge/Fabric 项目)
+/out/
+/classes/
+/resources/main/
