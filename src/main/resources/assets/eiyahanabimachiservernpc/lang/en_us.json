@@ -69,6 +69,7 @@
   "message.eiyahanabimachiservernpc.activity_point.saved": "已保存行为点 (%s, %s, %s) -> %s（半径: %s， 总点位: %s）",
   "message.eiyahanabimachiservernpc.activity_point.deleted": "已删除行为点 (%s, %s, %s)（剩余点位: %s）",
   "message.eiyahanabimachiservernpc.activity_point.not_found": "该位置不存在可删除的行为点 (%s, %s, %s)",
+  "message.eiyahanabimachiservernpc.extra_schedule_lock_order": "Extra actions must be enabled in order: 6 -> 7 -> 8 (enable Action %s first)",
   "eiyahanabimachiservernpc.configuration.title": "eiyahanabi-machi-servernpc Configs",
   "eiyahanabimachiservernpc.configuration.section.eiyahanabimachiservernpc.common.toml": "eiyahanabi-machi-servernpc Configs",
   "eiyahanabimachiservernpc.configuration.section.eiyahanabimachiservernpc.common.toml.title": "eiyahanabi-machi-servernpc Configs",
