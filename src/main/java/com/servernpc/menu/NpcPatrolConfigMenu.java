@@ -414,8 +414,16 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             case 0 -> this.morningWorkStart = Mth.clamp(this.morningWorkStart + delta, 0, this.noonWanderStart - STEP_TICKS);
             case 1 -> this.noonWanderStart = Mth.clamp(this.noonWanderStart + delta, this.morningWorkStart + STEP_TICKS, this.afternoonWorkStart - STEP_TICKS);
             case 2 -> this.afternoonWorkStart = Mth.clamp(this.afternoonWorkStart + delta, this.noonWanderStart + STEP_TICKS, this.eveningPlayStart - STEP_TICKS);
-            case 3 -> this.eveningPlayStart = Mth.clamp(this.eveningPlayStart + delta, this.afternoonWorkStart + STEP_TICKS, this.nightSleepStart - STEP_TICKS);
-            case 4 -> this.nightSleepStart = Mth.clamp(this.nightSleepStart + delta, this.eveningPlayStart + STEP_TICKS, 23999);
+            case 3 -> {
+                int maxEvening = this.action5Enabled ? this.nightSleepStart - STEP_TICKS : 23999;
+                this.eveningPlayStart = Mth.clamp(this.eveningPlayStart + delta, this.afternoonWorkStart + STEP_TICKS, maxEvening);
+            }
+            case 4 -> {
+                if (this.action5Enabled) {
+                    int maxNight = this.extraEnabled[0] ? this.extraStartTicks[0] - STEP_TICKS : 23999;
+                    this.nightSleepStart = Mth.clamp(this.nightSleepStart + delta, this.eveningPlayStart + STEP_TICKS, maxNight);
+                }
+            }
             default -> {
             }
         }
@@ -434,6 +442,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         if (!this.isValidExtraSlot(slot)) {
             return;
         }
+        if (!this.action5Enabled || !this.extraEnabled[slot]) {
+            return;
+        }
         int nextValue = this.extraStartTicks[slot] + delta;
         int min = this.getExtraStartMin(slot);
         int max = this.getExtraStartMax(slot);
@@ -450,6 +461,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             for (int i = slot; i < EXTRA_SLOT_COUNT; i++) {
                 this.extraEnabled[i] = false;
             }
+            this.rebalanceOptionalScheduleStarts();
             return;
         }
 
@@ -477,6 +489,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             }
         }
         this.extraEnabled[slot] = true;
+        this.rebalanceOptionalScheduleStarts();
     }
 
     private void toggleAction5Slot() {
@@ -484,6 +497,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         if (!this.action5Enabled) {
             this.disableAllExtraSchedules();
         }
+        this.rebalanceOptionalScheduleStarts();
     }
 
     private void disableAllExtraSchedules() {
@@ -517,26 +531,102 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         if (slot <= 0) {
             return Mth.clamp(this.nightSleepStart + STEP_TICKS, 0, 23999);
         }
-        return Mth.clamp(this.extraStartTicks[slot - 1] + STEP_TICKS, 0, 23999);
+        int prev = slot - 1;
+        while (prev >= 0 && !this.extraEnabled[prev]) {
+            prev--;
+        }
+        if (prev < 0) {
+            return Mth.clamp(this.nightSleepStart + STEP_TICKS, 0, 23999);
+        }
+        return Mth.clamp(this.extraStartTicks[prev] + STEP_TICKS, 0, 23999);
     }
 
     private int getExtraStartMax(int slot) {
-        if (slot >= EXTRA_SLOT_COUNT - 1) {
+        int next = slot + 1;
+        while (next < EXTRA_SLOT_COUNT && !this.extraEnabled[next]) {
+            next++;
+        }
+        if (next >= EXTRA_SLOT_COUNT) {
             return 23999;
         }
-        int bound = this.extraStartTicks[slot + 1] - STEP_TICKS;
+        int bound = this.extraStartTicks[next] - STEP_TICKS;
         return Mth.clamp(bound, 0, 23999);
     }
 
     private void normalizeExtraScheduleTicks() {
-        int min0 = Mth.clamp(this.nightSleepStart + STEP_TICKS, 0, 23999);
-        this.extraStartTicks[0] = Mth.clamp(this.extraStartTicks[0], min0, 23999);
+        if (!this.action5Enabled) {
+            this.nightSleepStart = 23999;
+            this.disableAllExtraSchedules();
+            for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+                this.extraStartTicks[i] = 23999;
+            }
+            return;
+        }
 
-        int min1 = Mth.clamp(this.extraStartTicks[0] + STEP_TICKS, 0, 23999);
-        this.extraStartTicks[1] = Mth.clamp(this.extraStartTicks[1], min1, 23999);
+        this.nightSleepStart = Mth.clamp(this.nightSleepStart, this.eveningPlayStart + STEP_TICKS, 23999);
+        for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+            if (i > 0 && this.extraEnabled[i] && !this.extraEnabled[i - 1]) {
+                this.extraEnabled[i] = false;
+            }
+        }
 
-        int min2 = Mth.clamp(this.extraStartTicks[1] + STEP_TICKS, 0, 23999);
-        this.extraStartTicks[2] = Mth.clamp(this.extraStartTicks[2], min2, 23999);
+        int previous = this.nightSleepStart;
+        for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+            if (!this.extraEnabled[i]) {
+                this.extraStartTicks[i] = 23999;
+                continue;
+            }
+            int min = Mth.clamp(previous + STEP_TICKS, 0, 23999);
+            this.extraStartTicks[i] = Mth.clamp(this.extraStartTicks[i], min, 23999);
+            previous = this.extraStartTicks[i];
+        }
+    }
+
+    private void rebalanceOptionalScheduleStarts() {
+        if (!this.action5Enabled) {
+            this.nightSleepStart = 23999;
+            for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+                this.extraStartTicks[i] = 23999;
+            }
+            return;
+        }
+
+        int enabledExtraCount = 0;
+        while (enabledExtraCount < EXTRA_SLOT_COUNT && this.extraEnabled[enabledExtraCount]) {
+            enabledExtraCount++;
+        }
+        int optionalCount = 1 + enabledExtraCount;
+        int minStart = Mth.clamp(this.eveningPlayStart + STEP_TICKS, 0, 23999);
+        int range = Math.max(0, 23999 - minStart);
+
+        int[] starts = new int[optionalCount];
+        for (int i = 0; i < optionalCount; i++) {
+            int target;
+            if (optionalCount == 1) {
+                target = minStart + range / 2;
+            } else {
+                float ratio = i / (float) (optionalCount - 1);
+                target = minStart + Math.round(range * ratio);
+            }
+            target = this.snapToStep(target);
+            int minBound = Mth.clamp(minStart + i * STEP_TICKS, 0, 23999);
+            int maxBound = Mth.clamp(23999 - (optionalCount - 1 - i) * STEP_TICKS, 0, 23999);
+            starts[i] = Mth.clamp(target, minBound, maxBound);
+        }
+
+        this.nightSleepStart = starts[0];
+        for (int i = 0; i < enabledExtraCount; i++) {
+            this.extraStartTicks[i] = starts[i + 1];
+        }
+        for (int i = enabledExtraCount; i < EXTRA_SLOT_COUNT; i++) {
+            this.extraStartTicks[i] = 23999;
+        }
+        this.normalizeExtraScheduleTicks();
+    }
+
+    private int snapToStep(int tick) {
+        int snapped = Math.round(tick / (float) STEP_TICKS) * STEP_TICKS;
+        return Mth.clamp(snapped, 0, 23999);
     }
 
     private static DataSlot intDataSlot(IntGetter getter, IntSetter setter) {
