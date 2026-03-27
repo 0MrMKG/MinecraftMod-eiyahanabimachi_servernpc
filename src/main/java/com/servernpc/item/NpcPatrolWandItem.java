@@ -42,6 +42,29 @@ public class NpcPatrolWandItem extends Item {
         super(properties);
     }
 
+    public static void clearBindingsForNpc(ServerLevel level, UUID npcUuid, int npcEntityId) {
+        if (level == null || level.getServer() == null) {
+            return;
+        }
+
+        BOUND_SESSIONS.entrySet().removeIf(entry ->
+                entry.getValue().npcUuid().equals(npcUuid) || entry.getValue().npcEntityId() == npcEntityId
+        );
+
+        for (ServerPlayer serverPlayer : level.getServer().getPlayerList().getPlayers()) {
+            boolean changed = false;
+            for (int i = 0; i < serverPlayer.getInventory().getContainerSize(); i++) {
+                ItemStack stack = serverPlayer.getInventory().getItem(i);
+                if (clearBindingIfMatchedNpc(stack, npcUuid, npcEntityId)) {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                serverPlayer.getInventory().setChanged();
+            }
+        }
+    }
+
     @Override
     public InteractionResult interactLivingEntity(ItemStack stack, Player player, LivingEntity interactionTarget, InteractionHand usedHand) {
         if (!(interactionTarget instanceof ReimuGoodNpcEntity npc)) {
@@ -220,6 +243,29 @@ public class NpcPatrolWandItem extends Item {
     private void clearBinding(CompoundTag tag) {
         tag.remove(BOUND_NPC_UUID_TAG);
         tag.remove(BOUND_NPC_ID_TAG);
+    }
+
+    private static boolean clearBindingIfMatchedNpc(ItemStack stack, UUID npcUuid, int npcEntityId) {
+        if (stack.isEmpty() || !stack.is(eiyahanabimachiservernpc.NPC_PATROL_WAND.get())) {
+            return false;
+        }
+
+        CustomData customData = stack.get(DataComponents.CUSTOM_DATA);
+        if (customData == null) {
+            return false;
+        }
+
+        CompoundTag tag = customData.copyTag();
+        boolean uuidMatched = tag.hasUUID(BOUND_NPC_UUID_TAG) && npcUuid.equals(tag.getUUID(BOUND_NPC_UUID_TAG));
+        boolean idMatched = tag.contains(BOUND_NPC_ID_TAG, Tag.TAG_INT) && tag.getInt(BOUND_NPC_ID_TAG) == npcEntityId;
+        if (!uuidMatched && !idMatched) {
+            return false;
+        }
+
+        tag.remove(BOUND_NPC_UUID_TAG);
+        tag.remove(BOUND_NPC_ID_TAG);
+        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+        return true;
     }
 
     private boolean isHeldByPlayer(Player player, ItemStack stack) {

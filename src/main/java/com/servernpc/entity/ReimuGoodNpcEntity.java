@@ -1,6 +1,7 @@
 package com.servernpc.entity;
 
 import com.servernpc.eiyahanabimachiservernpc;
+import com.servernpc.item.NpcPatrolWandItem;
 import com.servernpc.menu.NpcInventoryMenu;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -18,6 +19,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
@@ -49,6 +51,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.Item;
@@ -79,6 +82,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final int DEFAULT_EVENING_PLAY_START = 12000;
     private static final int DEFAULT_NIGHT_SLEEP_START = 15000;
     private static final int EXTRA_SCHEDULE_SLOT_COUNT = 3;
+    private static final String ACTION5_ENABLED_TAG = "Action5Enabled";
     private static final int DEFAULT_EXTRA_1_START = 17000;
     private static final int DEFAULT_EXTRA_2_START = 19000;
     private static final int DEFAULT_EXTRA_3_START = 21000;
@@ -100,9 +104,10 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private int afternoonWorkStart = DEFAULT_AFTERNOON_WORK_START;
     private int eveningPlayStart = DEFAULT_EVENING_PLAY_START;
     private int nightSleepStart = DEFAULT_NIGHT_SLEEP_START;
+    private boolean action5Enabled = false;
     private final int[] extraScheduleStartTicks = new int[]{DEFAULT_EXTRA_1_START, DEFAULT_EXTRA_2_START, DEFAULT_EXTRA_3_START};
     private final int[] extraScheduleActivityIds = new int[]{ActivityType.ACTION6.id(), ActivityType.ACTION7.id(), ActivityType.ACTION8.id()};
-    private final boolean[] extraScheduleEnabled = new boolean[]{true, true, true};
+    private final boolean[] extraScheduleEnabled = new boolean[]{false, false, false};
 
     public ReimuGoodNpcEntity(EntityType<? extends ReimuGoodNpcEntity> entityType, Level level) {
         super(entityType, level);
@@ -442,6 +447,20 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         return EXTRA_SCHEDULE_SLOT_COUNT;
     }
 
+    public boolean isAction5Enabled() {
+        return this.action5Enabled;
+    }
+
+    public void setAction5Enabled(boolean enabled) {
+        this.action5Enabled = enabled;
+        if (!enabled) {
+            for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+                this.extraScheduleEnabled[i] = false;
+            }
+        }
+        this.normalizeExtraScheduleEnabledPrefix();
+    }
+
     public boolean isExtraScheduleEnabled(int slot) {
         return this.isValidExtraSlot(slot) && this.extraScheduleEnabled[slot];
     }
@@ -464,9 +483,16 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         if (!this.isValidExtraSlot(slot)) {
             return;
         }
+        if (!this.action5Enabled) {
+            enabled = false;
+        }
+        if (enabled && slot > 0 && !this.extraScheduleEnabled[slot - 1]) {
+            enabled = false;
+        }
         this.extraScheduleEnabled[slot] = enabled;
         this.extraScheduleStartTicks[slot] = normalizePatrolTime(startTick);
         this.extraScheduleActivityIds[slot] = this.normalizeExtraActivityId(activityId);
+        this.normalizeExtraScheduleEnabledPrefix();
     }
 
     public void setScheduleBoundaries(int morningWork, int noonWander, int afternoonWork, int eveningPlay, int nightSleep) {
@@ -494,7 +520,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         entries.add(new ScheduleEntry(this.noonWanderStart, ActivityType.PLAY));
         entries.add(new ScheduleEntry(this.afternoonWorkStart, ActivityType.WANDER));
         entries.add(new ScheduleEntry(this.eveningPlayStart, ActivityType.WORK));
-        entries.add(new ScheduleEntry(this.nightSleepStart, ActivityType.ACTION5));
+        if (this.action5Enabled) {
+            entries.add(new ScheduleEntry(this.nightSleepStart, ActivityType.ACTION5));
+        }
         for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
             if (!this.extraScheduleEnabled[i]) {
                 continue;
@@ -576,6 +604,10 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                     scheduleTag.getInt("EveningPlayStart"),
                     scheduleTag.getInt("NightSleepStart")
             );
+            boolean action5 = scheduleTag.contains(ACTION5_ENABLED_TAG, Tag.TAG_BYTE)
+                    ? scheduleTag.getBoolean(ACTION5_ENABLED_TAG)
+                    : true;
+            this.setAction5Enabled(action5);
             for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
                 String enabledKey = "ExtraSlot" + i + "Enabled";
                 String startKey = "ExtraSlot" + i + "Start";
@@ -604,9 +636,10 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                     DEFAULT_EVENING_PLAY_START,
                     DEFAULT_NIGHT_SLEEP_START
             );
-            this.setExtraScheduleSlot(0, true, DEFAULT_EXTRA_1_START, ActivityType.ACTION6.id());
-            this.setExtraScheduleSlot(1, true, DEFAULT_EXTRA_2_START, ActivityType.ACTION7.id());
-            this.setExtraScheduleSlot(2, true, DEFAULT_EXTRA_3_START, ActivityType.ACTION8.id());
+            this.setAction5Enabled(false);
+            this.setExtraScheduleSlot(0, false, DEFAULT_EXTRA_1_START, ActivityType.ACTION6.id());
+            this.setExtraScheduleSlot(1, false, DEFAULT_EXTRA_2_START, ActivityType.ACTION7.id());
+            this.setExtraScheduleSlot(2, false, DEFAULT_EXTRA_3_START, ActivityType.ACTION8.id());
         }
         this.syncBackpackLockPlaceholders();
     }
@@ -629,12 +662,27 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         scheduleTag.putInt("AfternoonWorkStart", this.afternoonWorkStart);
         scheduleTag.putInt("EveningPlayStart", this.eveningPlayStart);
         scheduleTag.putInt("NightSleepStart", this.nightSleepStart);
+        scheduleTag.putBoolean(ACTION5_ENABLED_TAG, this.action5Enabled);
         for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
             scheduleTag.putBoolean("ExtraSlot" + i + "Enabled", this.extraScheduleEnabled[i]);
             scheduleTag.putInt("ExtraSlot" + i + "Start", this.extraScheduleStartTicks[i]);
             scheduleTag.putInt("ExtraSlot" + i + "Activity", this.extraScheduleActivityIds[i]);
         }
         compound.put(ACTIVITY_SCHEDULE_TAG, scheduleTag);
+    }
+
+    private void normalizeExtraScheduleEnabledPrefix() {
+        if (!this.action5Enabled) {
+            for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+                this.extraScheduleEnabled[i] = false;
+            }
+            return;
+        }
+        for (int i = 1; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+            if (this.extraScheduleEnabled[i] && !this.extraScheduleEnabled[i - 1]) {
+                this.extraScheduleEnabled[i] = false;
+            }
+        }
     }
 
     @Override
@@ -654,6 +702,14 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             this.zza = 0.0F;
             this.setTarget(null);
         }
+    }
+
+    @Override
+    public void die(DamageSource damageSource) {
+        if (!this.level().isClientSide && this.level() instanceof ServerLevel serverLevel) {
+            NpcPatrolWandItem.clearBindingsForNpc(serverLevel, this.getUUID(), this.getId());
+        }
+        super.die(damageSource);
     }
 
     private boolean isValidPickupItemEntity(ItemEntity itemEntity) {

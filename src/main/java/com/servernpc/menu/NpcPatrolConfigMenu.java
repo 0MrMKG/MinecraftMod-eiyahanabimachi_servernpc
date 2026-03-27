@@ -50,6 +50,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
     public static final int BTN_SAVE = 30;
     public static final int BTN_CANCEL = 31;
     public static final int BTN_DELETE = 32;
+    public static final int BTN_ACTION5_TOGGLE = 33;
+    public static final int BTN_ACTION5_TIME_MINUS = 34;
+    public static final int BTN_ACTION5_TIME_PLUS = 35;
 
     private static final int STEP_TICKS = 250;
 
@@ -64,8 +67,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
     private int afternoonWorkStart = 9000;
     private int eveningPlayStart = 12000;
     private int nightSleepStart = 15000;
+    private boolean action5Enabled = false;
     private int patrolRadius = ReimuGoodNpcEntity.DEFAULT_ACTIVITY_RADIUS;
-    private final boolean[] extraEnabled = new boolean[]{true, true, true};
+    private final boolean[] extraEnabled = new boolean[]{false, false, false};
     private final int[] extraStartTicks = new int[]{17000, 19000, 21000};
     private final int[] extraActivityTypeIds = new int[]{ActivityType.ACTION6.id(), ActivityType.ACTION7.id(), ActivityType.ACTION8.id()};
 
@@ -94,6 +98,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             this.afternoonWorkStart = this.npc.getAfternoonWorkStart();
             this.eveningPlayStart = this.npc.getEveningPlayStart();
             this.nightSleepStart = this.npc.getNightSleepStart();
+            this.action5Enabled = this.npc.isAction5Enabled();
             this.patrolRadius = this.npc.getActivityPointRadius(this.targetPos);
             this.selectedActivityTypeId = this.npc.getScheduledActivity((int) this.npc.level().getDayTime()).id();
             for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
@@ -120,6 +125,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         this.addDataSlot(intDataSlot(() -> this.afternoonWorkStart, value -> this.afternoonWorkStart = value));
         this.addDataSlot(intDataSlot(() -> this.eveningPlayStart, value -> this.eveningPlayStart = value));
         this.addDataSlot(intDataSlot(() -> this.nightSleepStart, value -> this.nightSleepStart = value));
+        this.addDataSlot(intDataSlot(() -> this.action5Enabled ? 1 : 0, value -> this.action5Enabled = value != 0));
         this.addDataSlot(intDataSlot(() -> this.patrolRadius, value -> this.patrolRadius = value));
         for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
             final int slot = i;
@@ -165,6 +171,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         }
 
         switch (id) {
+            case BTN_ACTION5_TOGGLE -> this.toggleAction5Slot();
+            case BTN_ACTION5_TIME_MINUS -> this.adjustBoundary(4, -STEP_TICKS);
+            case BTN_ACTION5_TIME_PLUS -> this.adjustBoundary(4, STEP_TICKS);
             case BTN_MORNING_MINUS -> this.adjustBoundary(0, -STEP_TICKS);
             case BTN_MORNING_PLUS -> this.adjustBoundary(0, STEP_TICKS);
             case BTN_NOON_MINUS -> this.adjustBoundary(1, -STEP_TICKS);
@@ -234,6 +243,14 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         return this.isValidExtraSlot(slot) && this.extraEnabled[slot];
     }
 
+    public boolean isAction5Enabled() {
+        return this.action5Enabled;
+    }
+
+    public boolean canToggleAction5() {
+        return true;
+    }
+
     public int getExtraScheduleStartTick(int slot) {
         if (!this.isValidExtraSlot(slot)) {
             return 0;
@@ -252,6 +269,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         if (!this.isValidExtraSlot(slot)) {
             return false;
         }
+        if (!this.action5Enabled) {
+            return false;
+        }
         if (this.extraEnabled[slot]) {
             return true;
         }
@@ -261,6 +281,53 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             }
         }
         return true;
+    }
+
+    public int getScheduleChainSlotCount() {
+        return EXTRA_SLOT_COUNT + 1;
+    }
+
+    public boolean isScheduleChainEnabled(int chainSlot) {
+        if (chainSlot == 0) {
+            return this.isAction5Enabled();
+        }
+        int extraSlot = chainSlot - 1;
+        return this.isExtraScheduleEnabled(extraSlot);
+    }
+
+    public int getScheduleChainStartTick(int chainSlot) {
+        if (chainSlot == 0) {
+            return this.nightSleepStart;
+        }
+        int extraSlot = chainSlot - 1;
+        return this.getExtraScheduleStartTick(extraSlot);
+    }
+
+    public int getScheduleChainActivityId(int chainSlot) {
+        return ActivityType.ACTION5.id() + Mth.clamp(chainSlot, 0, EXTRA_SLOT_COUNT);
+    }
+
+    public boolean canToggleScheduleChainSlot(int chainSlot) {
+        if (chainSlot == 0) {
+            return this.canToggleAction5();
+        }
+        int extraSlot = chainSlot - 1;
+        return this.canToggleExtraScheduleSlot(extraSlot);
+    }
+
+    public int getEnabledActionCount() {
+        int count = 4;
+        if (this.action5Enabled) {
+            count++;
+            for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+                if (this.extraEnabled[i]) {
+                    count++;
+                } else {
+                    break;
+                }
+            }
+        }
+        return count;
     }
 
     public static int extraButtonId(int slot, int op) {
@@ -286,6 +353,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
                 this.eveningPlayStart,
                 this.nightSleepStart
         );
+        this.npc.setAction5Enabled(this.action5Enabled);
         for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
             this.npc.setExtraScheduleSlot(i, this.extraEnabled[i], this.extraStartTicks[i], this.fixedExtraActivityId(i));
         }
@@ -385,6 +453,17 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             return;
         }
 
+        if (!this.action5Enabled) {
+            player.displayClientMessage(
+                    Component.translatable(
+                            "message." + eiyahanabimachiservernpc.MODID + ".extra_schedule_lock_order",
+                            5
+                    ),
+                    true
+            );
+            return;
+        }
+
         for (int i = 0; i < slot; i++) {
             if (!this.extraEnabled[i]) {
                 player.displayClientMessage(
@@ -398,6 +477,28 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             }
         }
         this.extraEnabled[slot] = true;
+    }
+
+    private void toggleAction5Slot() {
+        this.action5Enabled = !this.action5Enabled;
+        if (!this.action5Enabled) {
+            this.disableAllExtraSchedules();
+        }
+    }
+
+    private void disableAllExtraSchedules() {
+        for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+            this.extraEnabled[i] = false;
+        }
+    }
+
+    private boolean isAnyExtraEnabled() {
+        for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
+            if (this.extraEnabled[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isValidExtraSlot(int slot) {
