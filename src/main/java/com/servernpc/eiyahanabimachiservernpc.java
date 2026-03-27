@@ -3,8 +3,10 @@ package com.servernpc;
 import com.mojang.logging.LogUtils;
 import com.servernpc.entity.ReimuGoodNpcEntity;
 import com.servernpc.item.NpcInventoryToolItem;
+import com.servernpc.item.NpcPatrolWandItem;
 import com.servernpc.item.StopMovementToolItem;
 import com.servernpc.menu.NpcInventoryMenu;
+import com.servernpc.menu.NpcPatrolConfigMenu;
 import org.slf4j.Logger;
 
 import net.minecraft.core.registries.Registries;
@@ -71,6 +73,10 @@ public class eiyahanabimachiservernpc {
             "npc_inventory_tool",
             () -> new NpcInventoryToolItem(new Item.Properties().stacksTo(1))
     );
+    public static final DeferredItem<Item> NPC_PATROL_WAND = ITEMS.register(
+            "npc_patrol_wand",
+            () -> new NpcPatrolWandItem(new Item.Properties().stacksTo(1))
+    );
     public static final DeferredHolder<MenuType<?>, MenuType<NpcInventoryMenu>> NPC_INVENTORY_MENU = MENU_TYPES.register(
             "npc_inventory",
             () -> IMenuTypeExtension.create(
@@ -78,6 +84,16 @@ public class eiyahanabimachiservernpc {
                             containerId,
                             playerInventory,
                             data != null ? data.readVarInt() : -1
+                    )
+            )
+    );
+    public static final DeferredHolder<MenuType<?>, MenuType<NpcPatrolConfigMenu>> NPC_PATROL_CONFIG_MENU = MENU_TYPES.register(
+            "npc_patrol_config",
+            () -> IMenuTypeExtension.create(
+                    (containerId, playerInventory, data) -> new NpcPatrolConfigMenu(
+                            containerId,
+                            playerInventory,
+                            data
                     )
             )
     );
@@ -89,6 +105,7 @@ public class eiyahanabimachiservernpc {
                     .displayItems((parameters, output) -> {
                         output.accept(STOP_MOVEMENT_TOOL.get());
                         output.accept(NPC_INVENTORY_TOOL.get());
+                        output.accept(NPC_PATROL_WAND.get());
                         output.accept(HAKUREI_REIMU_GOOD_SPAWN_EGG.get());
                         output.accept(HINANAWI_TENSHI_SPAWN_EGG.get());
                         output.accept(REMILIA_SCARLET_SPAWN_EGG.get());

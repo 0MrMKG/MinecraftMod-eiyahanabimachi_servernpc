@@ -2,6 +2,7 @@ package com.servernpc;
 
 import com.servernpc.client.render.SkinnedNpcRenderer;
 import com.servernpc.client.screen.NpcInventoryScreen;
+import com.servernpc.client.screen.NpcPatrolConfigScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
@@ -48,6 +49,7 @@ public class eiyahanabimachiservernpcClient {
         @SubscribeEvent
         public static void registerMenuScreens(RegisterMenuScreensEvent event) {
             event.register(eiyahanabimachiservernpc.NPC_INVENTORY_MENU.get(), NpcInventoryScreen::new);
+            event.register(eiyahanabimachiservernpc.NPC_PATROL_CONFIG_MENU.get(), NpcPatrolConfigScreen::new);
         }
 
         private static void registerNpcRenderer(

@@ -2,14 +2,17 @@ package com.servernpc.entity;
 
 import com.servernpc.eiyahanabimachiservernpc;
 import com.servernpc.menu.NpcInventoryMenu;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -54,6 +57,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
@@ -65,6 +69,22 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final String BACKPACK_ITEMS_TAG = "BackpackItems";
     private static final String BACKPACK_MAX_STORAGE_TAG = "BackpackMaxStorage";
     private static final String EXTRA_EQUIPMENT_ITEMS_TAG = "ExtraEquipmentItems";
+    private static final String ACTIVITY_POINTS_TAG = "ActivityPoints";
+    private static final String ACTIVITY_SCHEDULE_TAG = "ActivitySchedule";
+    private static final int MAX_ACTIVITY_POINTS = 256;
+    private static final int SCHEDULE_STEP_TICKS = 250;
+    private static final int DEFAULT_MORNING_WORK_START = 2000;
+    private static final int DEFAULT_NOON_WANDER_START = 6000;
+    private static final int DEFAULT_AFTERNOON_WORK_START = 9000;
+    private static final int DEFAULT_EVENING_PLAY_START = 12000;
+    private static final int DEFAULT_NIGHT_SLEEP_START = 15000;
+    private static final int EXTRA_SCHEDULE_SLOT_COUNT = 3;
+    private static final int DEFAULT_EXTRA_1_START = 17000;
+    private static final int DEFAULT_EXTRA_2_START = 19000;
+    private static final int DEFAULT_EXTRA_3_START = 21000;
+    public static final int DEFAULT_ACTIVITY_RADIUS = 10;
+    public static final int MIN_ACTIVITY_RADIUS = 1;
+    public static final int MAX_ACTIVITY_RADIUS = 32;
     private static final Predicate<LivingEntity> SURVIVAL_PLAYER_TARGET =
             entity -> entity instanceof Player player && !player.isCreative() && !player.isSpectator();
 
@@ -73,7 +93,16 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private final MeleeAttackGoal meleeGoal = new MeleeAttackGoal(this, 1.2D, false);
     private final SimpleContainer backpackContainer = new SimpleContainer(27);
     private final SimpleContainer extraEquipmentContainer = new SimpleContainer(6);
+    private final List<ActivityPoint> activityPoints = new ArrayList<>();
     private int backpackMaxStorage = 0;
+    private int morningWorkStart = DEFAULT_MORNING_WORK_START;
+    private int noonWanderStart = DEFAULT_NOON_WANDER_START;
+    private int afternoonWorkStart = DEFAULT_AFTERNOON_WORK_START;
+    private int eveningPlayStart = DEFAULT_EVENING_PLAY_START;
+    private int nightSleepStart = DEFAULT_NIGHT_SLEEP_START;
+    private final int[] extraScheduleStartTicks = new int[]{DEFAULT_EXTRA_1_START, DEFAULT_EXTRA_2_START, DEFAULT_EXTRA_3_START};
+    private final int[] extraScheduleActivityIds = new int[]{ActivityType.ACTION6.id(), ActivityType.ACTION7.id(), ActivityType.ACTION8.id()};
+    private final boolean[] extraScheduleEnabled = new boolean[]{true, true, true};
 
     public ReimuGoodNpcEntity(EntityType<? extends ReimuGoodNpcEntity> entityType, Level level) {
         super(entityType, level);
@@ -103,6 +132,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(3, new SeekAndPickupItemsGoal(this, 1.05D, 12.0D));
+        this.goalSelector.addGoal(4, new PatrolRouteGoal(this, 0.95D));
         this.goalSelector.addGoal(5, new WaterAvoidingRandomStrollGoal(this, 0.8D));
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
@@ -166,7 +196,8 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         }
 
         if (heldItem.is(eiyahanabimachiservernpc.STOP_MOVEMENT_TOOL.get())
-                || heldItem.is(eiyahanabimachiservernpc.NPC_INVENTORY_TOOL.get())) {
+                || heldItem.is(eiyahanabimachiservernpc.NPC_INVENTORY_TOOL.get())
+                || heldItem.is(eiyahanabimachiservernpc.NPC_PATROL_WAND.get())) {
             return InteractionResult.PASS;
         }
 
@@ -298,6 +329,199 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         return this.extraEquipmentContainer;
     }
 
+    public void setOrUpdateActivityPoint(BlockPos center, ActivityType activityType) {
+        this.setOrUpdateActivityPoint(center, activityType, DEFAULT_ACTIVITY_RADIUS);
+    }
+
+    public void setOrUpdateActivityPoint(BlockPos center, ActivityType activityType, int radius) {
+        if (center == null || activityType == null) {
+            return;
+        }
+        int clampedRadius = Mth.clamp(radius, MIN_ACTIVITY_RADIUS, MAX_ACTIVITY_RADIUS);
+        BlockPos immutableCenter = center.immutable();
+        for (int i = 0; i < this.activityPoints.size(); i++) {
+            ActivityPoint existing = this.activityPoints.get(i);
+            if (existing.center().equals(immutableCenter)) {
+                this.activityPoints.set(i, new ActivityPoint(immutableCenter, activityType, clampedRadius));
+                return;
+            }
+        }
+        if (this.activityPoints.size() >= MAX_ACTIVITY_POINTS) {
+            this.activityPoints.remove(0);
+        }
+        this.activityPoints.add(new ActivityPoint(immutableCenter, activityType, clampedRadius));
+    }
+
+    public int getActivityPointCount() {
+        return this.activityPoints.size();
+    }
+
+    public boolean removeActivityPoint(BlockPos center) {
+        if (center == null) {
+            return false;
+        }
+        BlockPos immutableCenter = center.immutable();
+        return this.activityPoints.removeIf(point -> point.center().equals(immutableCenter));
+    }
+
+    public List<BlockPos> getActivityPointPositions() {
+        return this.activityPoints.stream()
+                .map(ActivityPoint::center)
+                .toList();
+    }
+
+    public List<ActivityPointInfo> getActivityPointInfos() {
+        return this.activityPoints.stream()
+                .map(point -> new ActivityPointInfo(point.center(), point.activityType(), point.radius()))
+                .toList();
+    }
+
+    public int getActivityPointRadius(BlockPos center) {
+        if (center == null) {
+            return DEFAULT_ACTIVITY_RADIUS;
+        }
+        BlockPos immutableCenter = center.immutable();
+        for (ActivityPoint point : this.activityPoints) {
+            if (point.center().equals(immutableCenter)) {
+                return point.radius();
+            }
+        }
+        return DEFAULT_ACTIVITY_RADIUS;
+    }
+
+    public ActivityType getScheduledActivity(int timeOfDay) {
+        return this.getCurrentScheduleWindow(timeOfDay).activityType();
+    }
+
+    public ScheduleWindow getCurrentScheduleWindow(int timeOfDay) {
+        List<ScheduleEntry> entries = this.buildScheduleEntries();
+        if (entries.isEmpty()) {
+            return new ScheduleWindow(0, 24000, ActivityType.SLEEP);
+        }
+
+        int time = normalizePatrolTime(timeOfDay);
+        int activeIndex = entries.size() - 1;
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).startTick() <= time) {
+                activeIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        ScheduleEntry active = entries.get(activeIndex);
+        int nextIndex = (activeIndex + 1) % entries.size();
+        int endTick = entries.get(nextIndex).startTick();
+        if (endTick == active.startTick()) {
+            endTick = (active.startTick() + 1) % 24000;
+        }
+        return new ScheduleWindow(active.startTick(), endTick, active.activityType());
+    }
+
+    public int getMorningWorkStart() {
+        return this.morningWorkStart;
+    }
+
+    public int getNoonWanderStart() {
+        return this.noonWanderStart;
+    }
+
+    public int getAfternoonWorkStart() {
+        return this.afternoonWorkStart;
+    }
+
+    public int getEveningPlayStart() {
+        return this.eveningPlayStart;
+    }
+
+    public int getNightSleepStart() {
+        return this.nightSleepStart;
+    }
+
+    public int getExtraScheduleSlotCount() {
+        return EXTRA_SCHEDULE_SLOT_COUNT;
+    }
+
+    public boolean isExtraScheduleEnabled(int slot) {
+        return this.isValidExtraSlot(slot) && this.extraScheduleEnabled[slot];
+    }
+
+    public int getExtraScheduleStartTick(int slot) {
+        if (!this.isValidExtraSlot(slot)) {
+            return DEFAULT_EXTRA_1_START;
+        }
+        return this.extraScheduleStartTicks[slot];
+    }
+
+    public int getExtraScheduleActivityId(int slot) {
+        if (!this.isValidExtraSlot(slot)) {
+            return ActivityType.ACTION6.id();
+        }
+        return this.extraScheduleActivityIds[slot];
+    }
+
+    public void setExtraScheduleSlot(int slot, boolean enabled, int startTick, int activityId) {
+        if (!this.isValidExtraSlot(slot)) {
+            return;
+        }
+        this.extraScheduleEnabled[slot] = enabled;
+        this.extraScheduleStartTicks[slot] = normalizePatrolTime(startTick);
+        this.extraScheduleActivityIds[slot] = this.normalizeExtraActivityId(activityId);
+    }
+
+    public void setScheduleBoundaries(int morningWork, int noonWander, int afternoonWork, int eveningPlay, int nightSleep) {
+        int morning = normalizePatrolTime(morningWork);
+        morning = Mth.clamp(morning, 0, 23999 - 4 * SCHEDULE_STEP_TICKS);
+        int noon = normalizePatrolTime(noonWander);
+        noon = Mth.clamp(noon, morning + SCHEDULE_STEP_TICKS, 23999 - 3 * SCHEDULE_STEP_TICKS);
+        int afternoon = normalizePatrolTime(afternoonWork);
+        afternoon = Mth.clamp(afternoon, noon + SCHEDULE_STEP_TICKS, 23999 - 2 * SCHEDULE_STEP_TICKS);
+        int evening = normalizePatrolTime(eveningPlay);
+        evening = Mth.clamp(evening, afternoon + SCHEDULE_STEP_TICKS, 23999 - SCHEDULE_STEP_TICKS);
+        int night = normalizePatrolTime(nightSleep);
+        night = Mth.clamp(night, evening + SCHEDULE_STEP_TICKS, 23999);
+
+        this.morningWorkStart = morning;
+        this.noonWanderStart = noon;
+        this.afternoonWorkStart = afternoon;
+        this.eveningPlayStart = evening;
+        this.nightSleepStart = night;
+    }
+
+    private List<ScheduleEntry> buildScheduleEntries() {
+        List<ScheduleEntry> entries = new ArrayList<>();
+        entries.add(new ScheduleEntry(this.morningWorkStart, ActivityType.SLEEP));
+        entries.add(new ScheduleEntry(this.noonWanderStart, ActivityType.PLAY));
+        entries.add(new ScheduleEntry(this.afternoonWorkStart, ActivityType.WANDER));
+        entries.add(new ScheduleEntry(this.eveningPlayStart, ActivityType.WORK));
+        entries.add(new ScheduleEntry(this.nightSleepStart, ActivityType.ACTION5));
+        for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+            if (!this.extraScheduleEnabled[i]) {
+                continue;
+            }
+            entries.add(new ScheduleEntry(
+                    this.extraScheduleStartTicks[i],
+                    ActivityType.byId(this.normalizeExtraActivityId(this.extraScheduleActivityIds[i]))
+            ));
+        }
+        entries.sort((a, b) -> {
+            if (a.startTick() != b.startTick()) {
+                return Integer.compare(a.startTick(), b.startTick());
+            }
+            return Integer.compare(a.activityType().id(), b.activityType().id());
+        });
+        return entries;
+    }
+
+    private int normalizeExtraActivityId(int activityId) {
+        int clamped = Mth.clamp(activityId, ActivityType.ACTION6.id(), ActivityType.ACTION8.id());
+        return ActivityType.byId(clamped).id();
+    }
+
+    private boolean isValidExtraSlot(int slot) {
+        return slot >= 0 && slot < EXTRA_SCHEDULE_SLOT_COUNT;
+    }
+
     public void reassessWeaponGoal() {
         if (this.level() == null || this.level().isClientSide) {
             return;
@@ -332,6 +556,58 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         } else {
             this.extraEquipmentContainer.clearContent();
         }
+        this.activityPoints.clear();
+        if (compound.contains(ACTIVITY_POINTS_TAG, Tag.TAG_LIST)) {
+            ListTag activityPointTags = compound.getList(ACTIVITY_POINTS_TAG, Tag.TAG_COMPOUND);
+            for (int i = 0; i < activityPointTags.size() && this.activityPoints.size() < MAX_ACTIVITY_POINTS; i++) {
+                CompoundTag activityPointTag = activityPointTags.getCompound(i);
+                ActivityPoint activityPoint = ActivityPoint.fromTag(activityPointTag);
+                if (activityPoint != null) {
+                    this.activityPoints.add(activityPoint);
+                }
+            }
+        }
+        if (compound.contains(ACTIVITY_SCHEDULE_TAG, Tag.TAG_COMPOUND)) {
+            CompoundTag scheduleTag = compound.getCompound(ACTIVITY_SCHEDULE_TAG);
+            this.setScheduleBoundaries(
+                    scheduleTag.getInt("MorningWorkStart"),
+                    scheduleTag.getInt("NoonWanderStart"),
+                    scheduleTag.getInt("AfternoonWorkStart"),
+                    scheduleTag.getInt("EveningPlayStart"),
+                    scheduleTag.getInt("NightSleepStart")
+            );
+            for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+                String enabledKey = "ExtraSlot" + i + "Enabled";
+                String startKey = "ExtraSlot" + i + "Start";
+                String activityKey = "ExtraSlot" + i + "Activity";
+                boolean enabled = scheduleTag.contains(enabledKey, Tag.TAG_BYTE)
+                        ? scheduleTag.getBoolean(enabledKey)
+                        : true;
+                int start = scheduleTag.contains(startKey, Tag.TAG_INT)
+                        ? scheduleTag.getInt(startKey)
+                        : (i == 0 ? DEFAULT_EXTRA_1_START : i == 1 ? DEFAULT_EXTRA_2_START : DEFAULT_EXTRA_3_START);
+                int activity = scheduleTag.contains(activityKey, Tag.TAG_INT)
+                        ? scheduleTag.getInt(activityKey)
+                        : (i == 0 ? ActivityType.ACTION6.id() : i == 1 ? ActivityType.ACTION7.id() : ActivityType.ACTION8.id());
+                this.setExtraScheduleSlot(
+                        i,
+                        enabled,
+                        start,
+                        activity
+                );
+            }
+        } else {
+            this.setScheduleBoundaries(
+                    DEFAULT_MORNING_WORK_START,
+                    DEFAULT_NOON_WANDER_START,
+                    DEFAULT_AFTERNOON_WORK_START,
+                    DEFAULT_EVENING_PLAY_START,
+                    DEFAULT_NIGHT_SLEEP_START
+            );
+            this.setExtraScheduleSlot(0, true, DEFAULT_EXTRA_1_START, ActivityType.ACTION6.id());
+            this.setExtraScheduleSlot(1, true, DEFAULT_EXTRA_2_START, ActivityType.ACTION7.id());
+            this.setExtraScheduleSlot(2, true, DEFAULT_EXTRA_3_START, ActivityType.ACTION8.id());
+        }
         this.syncBackpackLockPlaceholders();
     }
 
@@ -342,6 +618,23 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         compound.putInt(BACKPACK_MAX_STORAGE_TAG, this.backpackMaxStorage);
         compound.put(BACKPACK_ITEMS_TAG, this.backpackContainer.createTag(this.registryAccess()));
         compound.put(EXTRA_EQUIPMENT_ITEMS_TAG, this.extraEquipmentContainer.createTag(this.registryAccess()));
+        ListTag activityPointTags = new ListTag();
+        for (ActivityPoint activityPoint : this.activityPoints) {
+            activityPointTags.add(activityPoint.toTag());
+        }
+        compound.put(ACTIVITY_POINTS_TAG, activityPointTags);
+        CompoundTag scheduleTag = new CompoundTag();
+        scheduleTag.putInt("MorningWorkStart", this.morningWorkStart);
+        scheduleTag.putInt("NoonWanderStart", this.noonWanderStart);
+        scheduleTag.putInt("AfternoonWorkStart", this.afternoonWorkStart);
+        scheduleTag.putInt("EveningPlayStart", this.eveningPlayStart);
+        scheduleTag.putInt("NightSleepStart", this.nightSleepStart);
+        for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
+            scheduleTag.putBoolean("ExtraSlot" + i + "Enabled", this.extraScheduleEnabled[i]);
+            scheduleTag.putInt("ExtraSlot" + i + "Start", this.extraScheduleStartTicks[i]);
+            scheduleTag.putInt("ExtraSlot" + i + "Activity", this.extraScheduleActivityIds[i]);
+        }
+        compound.put(ACTIVITY_SCHEDULE_TAG, scheduleTag);
     }
 
     @Override
@@ -466,6 +759,211 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             if (this.mob.distanceToSqr(this.targetItem) <= 2.0D) {
                 this.mob.pickUpItem(this.targetItem);
             }
+        }
+    }
+
+    private static int normalizePatrolTime(int value) {
+        return Mth.positiveModulo(value, 24000);
+    }
+
+    private static class PatrolRouteGoal extends Goal {
+        private final ReimuGoodNpcEntity mob;
+        private final double speedModifier;
+        @Nullable
+        private ActivityType currentActivity;
+        @Nullable
+        private ActivityPoint currentPoint;
+        @Nullable
+        private BlockPos navigateTarget;
+        private int repathDelay;
+
+        private PatrolRouteGoal(ReimuGoodNpcEntity mob, double speedModifier) {
+            this.mob = mob;
+            this.speedModifier = speedModifier;
+            this.setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            if (this.mob.isMovementStopped() || this.mob.getTarget() != null) {
+                return false;
+            }
+            if (this.mob.activityPoints.isEmpty()) {
+                this.currentActivity = null;
+                this.currentPoint = null;
+                this.navigateTarget = null;
+                this.mob.clearRestriction();
+                return false;
+            }
+
+            if (this.currentPoint != null && !this.mob.activityPoints.contains(this.currentPoint)) {
+                this.currentPoint = null;
+            }
+
+            ActivityType activeActivity = this.mob.getScheduledActivity((int) this.mob.level().getDayTime());
+            if (this.currentPoint == null || this.currentActivity != activeActivity) {
+                this.currentActivity = activeActivity;
+                this.currentPoint = this.pickPointForActivity(activeActivity);
+                if (this.currentPoint == null) {
+                    this.navigateTarget = null;
+                    this.mob.clearRestriction();
+                    return false;
+                }
+                this.applyRestriction(this.currentPoint);
+                this.navigateTarget = this.currentPoint.center();
+                return !this.isInsideRadius(this.currentPoint);
+            }
+
+            this.applyRestriction(this.currentPoint);
+            this.navigateTarget = null;
+            return false;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return !this.mob.isMovementStopped()
+                    && this.mob.getTarget() == null
+                    && this.navigateTarget != null
+                    && this.currentPoint != null
+                    && !this.mob.getNavigation().isDone()
+                    && !this.isInsideRadius(this.currentPoint);
+        }
+
+        @Override
+        public void start() {
+            this.repathDelay = 0;
+            if (this.navigateTarget != null) {
+                this.mob.getNavigation().moveTo(
+                        this.navigateTarget.getX() + 0.5D,
+                        this.navigateTarget.getY(),
+                        this.navigateTarget.getZ() + 0.5D,
+                        this.speedModifier
+                );
+            }
+        }
+
+        @Override
+        public void stop() {
+            this.navigateTarget = null;
+            this.repathDelay = 0;
+        }
+
+        @Override
+        public void tick() {
+            if (this.currentPoint == null || this.navigateTarget == null) {
+                this.mob.getNavigation().stop();
+                return;
+            }
+            if (this.isInsideRadius(this.currentPoint)) {
+                this.mob.getNavigation().stop();
+                return;
+            }
+            if (--this.repathDelay <= 0) {
+                this.repathDelay = 20;
+                this.mob.getNavigation().moveTo(
+                        this.navigateTarget.getX() + 0.5D,
+                        this.navigateTarget.getY(),
+                        this.navigateTarget.getZ() + 0.5D,
+                        this.speedModifier
+                );
+            }
+        }
+
+        @Nullable
+        private ActivityPoint pickPointForActivity(ActivityType activityType) {
+            List<ActivityPoint> candidatePoints = this.mob.activityPoints.stream()
+                    .filter(point -> point.activityType() == activityType)
+                    .toList();
+            if (candidatePoints.isEmpty()) {
+                candidatePoints = this.mob.activityPoints;
+            }
+            if (candidatePoints.isEmpty()) {
+                return null;
+            }
+            return candidatePoints.get(this.mob.getRandom().nextInt(candidatePoints.size()));
+        }
+
+        private void applyRestriction(ActivityPoint point) {
+            this.mob.restrictTo(point.center(), point.radius());
+        }
+
+        private boolean isInsideRadius(ActivityPoint point) {
+            double radius = point.radius() + 0.5D;
+            return this.mob.distanceToSqr(Vec3.atCenterOf(point.center())) <= radius * radius;
+        }
+    }
+
+    public enum ActivityType {
+        SLEEP(0, "action1"),
+        PLAY(1, "action2"),
+        WANDER(2, "action3"),
+        WORK(3, "action4"),
+        ACTION5(4, "action5"),
+        ACTION6(5, "action6"),
+        ACTION7(6, "action7"),
+        ACTION8(7, "action8");
+
+        private final int id;
+        private final String key;
+
+        ActivityType(int id, String key) {
+            this.id = id;
+            this.key = key;
+        }
+
+        public int id() {
+            return this.id;
+        }
+
+        public String key() {
+            return this.key;
+        }
+
+        public static ActivityType byId(int id) {
+            for (ActivityType type : values()) {
+                if (type.id == id) {
+                    return type;
+                }
+            }
+            return WORK;
+        }
+    }
+
+    private record ScheduleEntry(int startTick, ActivityType activityType) {
+    }
+
+    public record ScheduleWindow(int startTick, int endTick, ActivityType activityType) {
+    }
+
+    public record ActivityPointInfo(BlockPos center, ActivityType activityType, int radius) {
+    }
+
+    private record ActivityPoint(BlockPos center, ActivityType activityType, int radius) {
+        private static final String CENTER_TAG = "Center";
+        private static final String TYPE_TAG = "Type";
+        private static final String RADIUS_TAG = "Radius";
+
+        private CompoundTag toTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putLong(CENTER_TAG, this.center.asLong());
+            tag.putInt(TYPE_TAG, this.activityType.id());
+            tag.putInt(RADIUS_TAG, this.radius);
+            return tag;
+        }
+
+        @Nullable
+        private static ActivityPoint fromTag(CompoundTag tag) {
+            if (!tag.contains(CENTER_TAG, Tag.TAG_LONG)) {
+                return null;
+            }
+
+            BlockPos center = BlockPos.of(tag.getLong(CENTER_TAG));
+            ActivityType type = ActivityType.byId(tag.getInt(TYPE_TAG));
+            int radius = Mth.clamp(tag.getInt(RADIUS_TAG), MIN_ACTIVITY_RADIUS, MAX_ACTIVITY_RADIUS);
+            if (!tag.contains(RADIUS_TAG, Tag.TAG_INT)) {
+                radius = DEFAULT_ACTIVITY_RADIUS;
+            }
+            return new ActivityPoint(center, type, radius);
         }
     }
 
