@@ -21,11 +21,13 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
     private static final int HANDLE_PICK_TOP = 5;
     private static final int HANDLE_PICK_BOTTOM = 20;
     private static final int[] BOUNDARY_MINUS_BUTTONS = new int[]{
+            NpcPatrolConfigMenu.BTN_MORNING_MINUS,
             NpcPatrolConfigMenu.BTN_NOON_MINUS,
             NpcPatrolConfigMenu.BTN_AFTERNOON_MINUS,
             NpcPatrolConfigMenu.BTN_EVENING_MINUS
     };
     private static final int[] BOUNDARY_PLUS_BUTTONS = new int[]{
+            NpcPatrolConfigMenu.BTN_MORNING_PLUS,
             NpcPatrolConfigMenu.BTN_NOON_PLUS,
             NpcPatrolConfigMenu.BTN_AFTERNOON_PLUS,
             NpcPatrolConfigMenu.BTN_EVENING_PLUS
@@ -433,16 +435,17 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
     }
 
     private int[] getDisplayBoundaryTicks() {
-        int boundaryCount = this.menu.getEnabledActionCount() - 1;
-        int[] ticks = new int[boundaryCount];
+        int actionCount = this.menu.getEnabledActionCount();
+        int[] ticks = new int[actionCount];
         int index = 0;
+        ticks[index++] = this.menu.getMorningWorkStart();
         ticks[index++] = this.menu.getNoonWanderStart();
         ticks[index++] = this.menu.getAfternoonWorkStart();
         ticks[index++] = this.menu.getEveningPlayStart();
-        if (this.menu.isAction5Enabled() && index < boundaryCount) {
+        if (this.menu.isAction5Enabled() && index < actionCount) {
             ticks[index++] = this.menu.getNightSleepStart();
         }
-        for (int i = 0; i < NpcPatrolConfigMenu.EXTRA_SLOT_COUNT && index < boundaryCount; i++) {
+        for (int i = 0; i < NpcPatrolConfigMenu.EXTRA_SLOT_COUNT && index < actionCount; i++) {
             if (!this.menu.isExtraScheduleEnabled(i)) {
                 break;
             }
@@ -456,13 +459,14 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
 
     private int getMenuBoundaryTick(int boundaryIndex) {
         return switch (boundaryIndex) {
-            case 0 -> this.menu.getNoonWanderStart();
-            case 1 -> this.menu.getAfternoonWorkStart();
-            case 2 -> this.menu.getEveningPlayStart();
-            case 3 -> this.menu.getNightSleepStart();
-            case 4 -> this.menu.getExtraScheduleStartTick(0);
-            case 5 -> this.menu.getExtraScheduleStartTick(1);
-            case 6 -> this.menu.getExtraScheduleStartTick(2);
+            case 0 -> this.menu.getMorningWorkStart();
+            case 1 -> this.menu.getNoonWanderStart();
+            case 2 -> this.menu.getAfternoonWorkStart();
+            case 3 -> this.menu.getEveningPlayStart();
+            case 4 -> this.menu.getNightSleepStart();
+            case 5 -> this.menu.getExtraScheduleStartTick(0);
+            case 6 -> this.menu.getExtraScheduleStartTick(1);
+            case 7 -> this.menu.getExtraScheduleStartTick(2);
             default -> 0;
         };
     }
@@ -474,14 +478,14 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
 
         int plusButtonId;
         int minusButtonId;
-        if (boundaryIndex <= 2) {
+        if (boundaryIndex <= 3) {
             plusButtonId = BOUNDARY_PLUS_BUTTONS[boundaryIndex];
             minusButtonId = BOUNDARY_MINUS_BUTTONS[boundaryIndex];
-        } else if (boundaryIndex == 3) {
+        } else if (boundaryIndex == 4) {
             plusButtonId = NpcPatrolConfigMenu.BTN_ACTION5_TIME_PLUS;
             minusButtonId = NpcPatrolConfigMenu.BTN_ACTION5_TIME_MINUS;
         } else {
-            int extraSlot = boundaryIndex - 4;
+            int extraSlot = boundaryIndex - 5;
             plusButtonId = NpcPatrolConfigMenu.extraButtonId(extraSlot, NpcPatrolConfigMenu.EXTRA_OP_TIME_PLUS);
             minusButtonId = NpcPatrolConfigMenu.extraButtonId(extraSlot, NpcPatrolConfigMenu.EXTRA_OP_TIME_MINUS);
         }
