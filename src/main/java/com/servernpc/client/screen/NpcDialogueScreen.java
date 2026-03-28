@@ -5,16 +5,19 @@ import com.servernpc.client.dialogue.DialogueScript;
 import com.servernpc.client.dialogue.DialogueScriptLoader;
 import com.servernpc.eiyahanabimachiservernpc;
 import com.servernpc.entity.ReimuGoodNpcEntity;
+import com.servernpc.network.payload.ExecuteNpcDialogueFunctionPayload;
 import com.servernpc.network.payload.StopNpcDialogueFocusPayload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nullable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
@@ -66,9 +69,23 @@ public class NpcDialogueScreen extends Screen {
     private static final int BRACKET_THICKNESS = 2;
     private static final int NAMEPLATE_RADIUS = 4;
     private static final int NAME_TEXT_COLOR = 0xFFFFFFFF;
-    private static final int NAMEPLATE_BORDER_NORMAL = 0x1AFFFFFF; // 10% alpha
+    private static final int NAMEPLATE_BORDER_NORMAL = 0x80FFFFFF; // 50% alpha
     private static final int TEXT_SHADOW_COLOR = 0x8A101010;
     private static final int TYPEWRITER_TICKS_PER_CHAR = 1;
+    private static final Map<String, String> CHINESE_NPC_NAMES = Map.ofEntries(
+            Map.entry("hakurei_reimu_good", "博丽灵梦"),
+            Map.entry("hinanawi_tenshi", "比那名居天子"),
+            Map.entry("hong_meiling", "红美铃"),
+            Map.entry("izayoi_sakuya", "十六夜咲夜"),
+            Map.entry("kirisame_marisa", "雾雨魔理沙"),
+            Map.entry("kochiya_sanae", "东风谷早苗"),
+            Map.entry("reisen_udongein", "铃仙"),
+            Map.entry("remilia_scarlet", "蕾米莉亚·斯卡蕾特"),
+            Map.entry("saigyouji_yuyuko", "西行寺幽幽子"),
+            Map.entry("shameimaru_aya", "射命丸文"),
+            Map.entry("chen", "橙"),
+            Map.entry("cirno", "琪露诺")
+    );
 
     private final ReimuGoodNpcEntity npc;
     private final DialogueScript script;
@@ -93,6 +110,7 @@ public class NpcDialogueScreen extends Screen {
     private int portraitCropHeight = 0;
     private boolean previousHideGui;
     private boolean hideGuiStateCaptured;
+    private boolean dialogueInitialized;
 
     public static void open(ReimuGoodNpcEntity npc) {
         DialogueScriptLoader.LoadedDialogue loadedDialogue = DialogueScriptLoader.loadForNpc(npc);
@@ -112,6 +130,8 @@ public class NpcDialogueScreen extends Screen {
     protected void init() {
         this.captureAndHideVanillaHud();
         this.loadPortraitTexture();
+        this.dialogueInitialized = true;
+        this.dispatchNodeFunctions(this.currentNode);
     }
 
     @Override
@@ -136,7 +156,7 @@ public class NpcDialogueScreen extends Screen {
         Rect portraitRect = this.getPortraitRect(dialogueRect);
         Rect optionsRect = this.getOptionsRect(dialogueRect);
         Rect textRect = this.getTextRect(dialogueRect, portraitRect, optionsRect);
-        String displayName = this.script.npcName().isBlank() ? this.npc.getDisplayName().getString() : this.script.npcName();
+        String displayName = this.resolveDisplayName();
         Rect nameplateRect = this.getNameplateRect(dialogueRect, optionsRect, displayName);
 
         this.drawMainPanel(guiGraphics, dialogueRect);
@@ -147,6 +167,17 @@ public class NpcDialogueScreen extends Screen {
         if (this.isCurrentTextFullyVisible() && this.hasOptions()) {
             this.drawOptions(guiGraphics, optionsRect);
         }
+    }
+
+    private String resolveDisplayName() {
+        String mappedName = CHINESE_NPC_NAMES.get(this.npcEntityId);
+        if (mappedName != null && !mappedName.isBlank()) {
+            return mappedName;
+        }
+        if (!this.script.npcName().isBlank()) {
+            return this.script.npcName();
+        }
+        return this.npc.getDisplayName().getString();
     }
 
     @Override
@@ -303,14 +334,29 @@ public class NpcDialogueScreen extends Screen {
         this.typewriterTickCounter = 0;
         this.selectedOptionIndex = 0;
         this.optionWindowStart = 0;
+        if (this.dialogueInitialized) {
+            this.dispatchNodeFunctions(this.currentNode);
+        }
+    }
+
+    private void dispatchNodeFunctions(@Nullable DialogueScript.DialogueNode node) {
+        if (node == null || node.functions().isEmpty()) {
+            return;
+        }
+        for (String functionCall : node.functions()) {
+            if (functionCall == null || functionCall.isBlank()) {
+                continue;
+            }
+            PacketDistributor.sendToServer(new ExecuteNpcDialogueFunctionPayload(this.npc.getId(), functionCall.trim()));
+        }
     }
 
     private void drawNameplate(GuiGraphics guiGraphics, Rect nameplateRect, String name) {
         this.drawRoundedNameplate(guiGraphics, nameplateRect);
         int textY = nameplateRect.y + (nameplateRect.height - this.font.lineHeight) / 2;
         int textX = nameplateRect.x + 12;
-        guiGraphics.drawString(this.font, name, textX + 1, textY, NAME_TEXT_COLOR, false);
-        guiGraphics.drawString(this.font, name, textX, textY, NAME_TEXT_COLOR, false);
+        Component boldName = Component.literal(name).withStyle(ChatFormatting.BOLD);
+        guiGraphics.drawString(this.font, boldName, textX, textY, NAME_TEXT_COLOR, false);
     }
 
     private void drawPortrait(GuiGraphics guiGraphics, Rect portraitRect) {

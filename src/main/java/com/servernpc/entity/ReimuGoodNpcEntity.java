@@ -8,12 +8,14 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -22,6 +24,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -825,6 +828,63 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             return;
         }
         this.clearDialogueFocus();
+    }
+
+    public void executeDialogueFunction(ServerPlayer player, String functionCall) {
+        if (player == null || functionCall == null || functionCall.isBlank()) {
+            return;
+        }
+        if (this.distanceToSqr(player) > DIALOGUE_FOCUS_MAX_DISTANCE_SQR) {
+            return;
+        }
+        if (this.dialogueFocusPlayerUuid != null && !player.getUUID().equals(this.dialogueFocusPlayerUuid)) {
+            return;
+        }
+
+        String[] parts = functionCall.split("\\|");
+        if (parts.length == 0) {
+            return;
+        }
+        String functionName = parts[0].trim().toLowerCase(Locale.ROOT);
+        switch (functionName) {
+            case "set_mainhand_item", "give_mainhand_item", "mainhand_item" -> this.applySetMainHandItem(parts);
+            default -> eiyahanabimachiservernpc.LOGGER.warn("Unknown dialogue function '{}'", functionCall);
+        }
+    }
+
+    private void applySetMainHandItem(String[] parts) {
+        if (parts.length < 2) {
+            return;
+        }
+        String itemToken = parts[1].trim();
+        if (itemToken.isEmpty()) {
+            return;
+        }
+        if (itemToken.equalsIgnoreCase("minecraft:air") || itemToken.equalsIgnoreCase("air") || itemToken.equalsIgnoreCase("empty")) {
+            this.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+            return;
+        }
+
+        @Nullable ResourceLocation itemId = ResourceLocation.tryParse(itemToken);
+        if (itemId == null) {
+            eiyahanabimachiservernpc.LOGGER.warn("Invalid item id for dialogue function: {}", itemToken);
+            return;
+        }
+        @Nullable Item item = BuiltInRegistries.ITEM.getOptional(itemId).orElse(null);
+        if (item == null || item == Items.AIR) {
+            eiyahanabimachiservernpc.LOGGER.warn("Item not found for dialogue function: {}", itemId);
+            return;
+        }
+
+        int count = 1;
+        if (parts.length >= 3) {
+            try {
+                count = Integer.parseInt(parts[2].trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        count = Mth.clamp(count, 1, item.getDefaultMaxStackSize());
+        this.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(item, count));
     }
 
     private void tickDialogueFocus() {

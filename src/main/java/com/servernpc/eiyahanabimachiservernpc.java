@@ -8,6 +8,7 @@ import com.servernpc.item.StopMovementToolItem;
 import com.servernpc.item.TimeAccelerationToolItem;
 import com.servernpc.menu.NpcInventoryMenu;
 import com.servernpc.menu.NpcPatrolConfigMenu;
+import com.servernpc.network.payload.ExecuteNpcDialogueFunctionPayload;
 import com.servernpc.network.payload.StopNpcDialogueFocusPayload;
 import org.slf4j.Logger;
 
@@ -169,6 +170,11 @@ public class eiyahanabimachiservernpc {
                 StopNpcDialogueFocusPayload.TYPE,
                 StopNpcDialogueFocusPayload.STREAM_CODEC,
                 StopNpcDialogueFocusPayload::handle
+        );
+        registrar.playToServer(
+                ExecuteNpcDialogueFunctionPayload.TYPE,
+                ExecuteNpcDialogueFunctionPayload.STREAM_CODEC,
+                ExecuteNpcDialogueFunctionPayload::handle
         );
     }
 

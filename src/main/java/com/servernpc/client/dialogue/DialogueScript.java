@@ -29,7 +29,13 @@ public final class DialogueScript {
             DialogueNode node = entry.getValue();
             copy.put(
                     entry.getKey(),
-                    new DialogueNode(node.id(), node.text(), List.copyOf(node.options()), node.nextNodeId())
+                    new DialogueNode(
+                            node.id(),
+                            node.text(),
+                            List.copyOf(node.options()),
+                            List.copyOf(node.functions()),
+                            node.nextNodeId()
+                    )
             );
         }
         this.nodes = Map.copyOf(copy);
@@ -58,6 +64,7 @@ public final class DialogueScript {
                 "start",
                 "剧本加载失败:\n" + detail,
                 List.of(),
+                List.of(),
                 END_NODE
         );
         return new DialogueScript(npcName, null, "start", Map.of("start", node));
@@ -67,6 +74,7 @@ public final class DialogueScript {
             String id,
             String text,
             List<DialogueOption> options,
+            List<String> functions,
             @Nullable String nextNodeId
     ) {
     }

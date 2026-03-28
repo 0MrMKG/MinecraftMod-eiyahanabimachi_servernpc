@@ -1,7 +1,7 @@
-﻿# 比那名居天子 对话脚本
+﻿# 西行寺幽幽子 对话脚本
 [npc]
-name=比那名居天子
-portrait=hinanawi_tenshi.png
+name=西行寺幽幽子
+portrait=saigyouji_yuyuko.png
 start=start
 
 [node start]
@@ -12,7 +12,7 @@ option=先打个招呼->hello
 option=不了，我先走了->END
 
 [node hello]
-text=哼，礼貌不错。\n我是比那名居天子。
+text=哼，礼貌不错。\n我是西行寺幽幽子。
 next=news
 
 [node news]
