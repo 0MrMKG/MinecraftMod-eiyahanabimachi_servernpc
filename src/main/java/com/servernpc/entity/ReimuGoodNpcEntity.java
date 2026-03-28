@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
+import java.lang.reflect.InvocationTargetException;
+import java.util.UUID;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
@@ -96,6 +98,8 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final int SLEEP_FALLBACK_SEARCH_RADIUS = 16;
     private static final int SLEEP_FALLBACK_VERTICAL_RANGE = 4;
     private static final int SLEEP_FALLBACK_CHECK_COOLDOWN = 20;
+    private static final int DIALOGUE_FOCUS_DURATION_TICKS = 20 * 45;
+    private static final double DIALOGUE_FOCUS_MAX_DISTANCE_SQR = 32.0D * 32.0D;
     public static final int DEFAULT_ACTIVITY_RADIUS = 10;
     public static final int MIN_ACTIVITY_RADIUS = 1;
     public static final int MAX_ACTIVITY_RADIUS = 32;
@@ -122,6 +126,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     @Nullable
     private BlockPos sleepFallbackBed;
     private int sleepFallbackCooldown;
+    @Nullable
+    private UUID dialogueFocusPlayerUuid;
+    private int dialogueFocusTicks;
 
     public ReimuGoodNpcEntity(EntityType<? extends ReimuGoodNpcEntity> entityType, Level level) {
         super(entityType, level);
@@ -220,8 +227,25 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             return InteractionResult.PASS;
         }
 
+        if (!this.level().isClientSide) {
+            this.beginDialogueFocus(player);
+        }
+        if (this.level().isClientSide) {
+            openDialogueScreenClient(this);
+        }
         this.playSound(SoundEvents.VILLAGER_YES, 1.0F, 1.0F);
         return InteractionResult.sidedSuccess(this.level().isClientSide);
+    }
+
+    private static void openDialogueScreenClient(ReimuGoodNpcEntity npc) {
+        try {
+            Class<?> dialogueScreenClass = Class.forName("com.servernpc.client.screen.NpcDialogueScreen");
+            dialogueScreenClass
+                    .getMethod("open", ReimuGoodNpcEntity.class)
+                    .invoke(null, npc);
+        } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException ex) {
+            eiyahanabimachiservernpc.LOGGER.warn("Failed to open dialogue screen for {}", npc.getType().getDescriptionId(), ex);
+        }
     }
 
     @Override
@@ -770,6 +794,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         }
         if (!this.level().isClientSide) {
             this.updateSleepFallbackState();
+            this.tickDialogueFocus();
         }
         if (this.isMovementStopped()) {
             this.setDeltaMovement(Vec3.ZERO);
@@ -777,6 +802,75 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             this.zza = 0.0F;
             this.setTarget(null);
         }
+    }
+
+    private void beginDialogueFocus(Player player) {
+        if (player == null || !player.isAlive()) {
+            return;
+        }
+        this.dialogueFocusPlayerUuid = player.getUUID();
+        this.dialogueFocusTicks = DIALOGUE_FOCUS_DURATION_TICKS;
+        this.getNavigation().stop();
+        this.setDeltaMovement(Vec3.ZERO);
+        this.xxa = 0.0F;
+        this.zza = 0.0F;
+        this.setTarget(null);
+    }
+
+    public void endDialogueFocus(Player player) {
+        if (player == null || this.dialogueFocusPlayerUuid == null) {
+            return;
+        }
+        if (!player.getUUID().equals(this.dialogueFocusPlayerUuid)) {
+            return;
+        }
+        this.clearDialogueFocus();
+    }
+
+    private void tickDialogueFocus() {
+        if (this.dialogueFocusTicks <= 0 || this.dialogueFocusPlayerUuid == null) {
+            return;
+        }
+        if (!(this.level() instanceof ServerLevel serverLevel)) {
+            this.clearDialogueFocus();
+            return;
+        }
+
+        Player focusPlayer = serverLevel.getPlayerByUUID(this.dialogueFocusPlayerUuid);
+        if (focusPlayer == null
+                || !focusPlayer.isAlive()
+                || focusPlayer.isSpectator()
+                || this.distanceToSqr(focusPlayer) > DIALOGUE_FOCUS_MAX_DISTANCE_SQR) {
+            this.clearDialogueFocus();
+            return;
+        }
+
+        this.dialogueFocusTicks--;
+        this.getNavigation().stop();
+        this.setDeltaMovement(Vec3.ZERO);
+        this.xxa = 0.0F;
+        this.zza = 0.0F;
+        this.setTarget(null);
+        this.getLookControl().setLookAt(focusPlayer, 30.0F, 30.0F);
+        this.lookAt(focusPlayer, 30.0F, 30.0F);
+
+        double dx = focusPlayer.getX() - this.getX();
+        double dz = focusPlayer.getZ() - this.getZ();
+        if (dx * dx + dz * dz > 1.0E-6D) {
+            float targetYRot = (float) (Mth.atan2(dz, dx) * (180.0D / Math.PI)) - 90.0F;
+            this.setYRot(targetYRot);
+            this.setYHeadRot(targetYRot);
+            this.setYBodyRot(targetYRot);
+        }
+
+        if (this.dialogueFocusTicks <= 0) {
+            this.clearDialogueFocus();
+        }
+    }
+
+    private void clearDialogueFocus() {
+        this.dialogueFocusTicks = 0;
+        this.dialogueFocusPlayerUuid = null;
     }
 
     private void updateSleepFallbackState() {

@@ -8,6 +8,7 @@ import com.servernpc.item.StopMovementToolItem;
 import com.servernpc.item.TimeAccelerationToolItem;
 import com.servernpc.menu.NpcInventoryMenu;
 import com.servernpc.menu.NpcPatrolConfigMenu;
+import com.servernpc.network.payload.StopNpcDialogueFocusPayload;
 import org.slf4j.Logger;
 
 import net.minecraft.core.registries.Registries;
@@ -27,6 +28,8 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -156,7 +159,17 @@ public class eiyahanabimachiservernpc {
         MENU_TYPES.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         modEventBus.addListener(this::registerEntityAttributes);
+        modEventBus.addListener(this::registerPayloadHandlers);
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+    }
+
+    private void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
+        PayloadRegistrar registrar = event.registrar("1");
+        registrar.playToServer(
+                StopNpcDialogueFocusPayload.TYPE,
+                StopNpcDialogueFocusPayload.STREAM_CODEC,
+                StopNpcDialogueFocusPayload::handle
+        );
     }
 
     private void registerEntityAttributes(EntityAttributeCreationEvent event) {
