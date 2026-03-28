@@ -145,6 +145,28 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
         guiGraphics.drawString(
                 this.font,
                 Component.translatable(
+                        "gui." + eiyahanabimachiservernpc.MODID + ".current_npc",
+                        this.menu.getNpcDisplayName()
+                ),
+                150,
+                18,
+                0x404040,
+                false
+        );
+        guiGraphics.drawString(
+                this.font,
+                Component.translatable(
+                        "gui." + eiyahanabimachiservernpc.MODID
+                                + (this.menu.hasScheduleConfigured() ? ".schedule_state_set" : ".schedule_state_unset")
+                ),
+                150,
+                28,
+                this.menu.hasScheduleConfigured() ? 0x2F6B2F : 0x8A2F2F,
+                false
+        );
+        guiGraphics.drawString(
+                this.font,
+                Component.translatable(
                         "gui." + eiyahanabimachiservernpc.MODID + ".patrol_position",
                         this.menu.getTargetPos().getX(),
                         this.menu.getTargetPos().getY(),

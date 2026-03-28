@@ -60,6 +60,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
     private final BlockPos targetPos;
     @Nullable
     private final ReimuGoodNpcEntity npc;
+    private final Component npcDisplayName;
 
     private int selectedActivityTypeId = ActivityType.WORK.id();
     private int morningWorkStart = 2000;
@@ -67,6 +68,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
     private int afternoonWorkStart = 9000;
     private int eveningPlayStart = 12000;
     private int nightSleepStart = 15000;
+    private boolean scheduleConfigured = false;
     private boolean action5Enabled = false;
     private int patrolRadius = ReimuGoodNpcEntity.DEFAULT_ACTIVITY_RADIUS;
     private final boolean[] extraEnabled = new boolean[]{false, false, false};
@@ -91,8 +93,12 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         this.npcEntityId = npcEntityId;
         this.targetPos = targetPos.immutable();
         this.npc = resolveNpc(playerInventory.player, npcEntityId);
+        this.npcDisplayName = this.npc != null
+                ? this.npc.getName().copy()
+                : Component.literal("#" + npcEntityId);
 
         if (this.npc != null) {
+            this.scheduleConfigured = this.npc.hasScheduleConfigured();
             this.morningWorkStart = this.npc.getMorningWorkStart();
             this.noonWanderStart = this.npc.getNoonWanderStart();
             this.afternoonWorkStart = this.npc.getAfternoonWorkStart();
@@ -100,7 +106,9 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
             this.nightSleepStart = this.npc.getNightSleepStart();
             this.action5Enabled = this.npc.isAction5Enabled();
             this.patrolRadius = this.npc.getActivityPointRadius(this.targetPos);
-            this.selectedActivityTypeId = this.npc.getScheduledActivity((int) this.npc.level().getDayTime()).id();
+            if (this.scheduleConfigured) {
+                this.selectedActivityTypeId = this.npc.getScheduledActivity((int) this.npc.level().getDayTime()).id();
+            }
             for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
                 this.extraEnabled[i] = this.npc.isExtraScheduleEnabled(i);
                 this.extraStartTicks[i] = this.npc.getExtraScheduleStartTick(i);
@@ -125,6 +133,7 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
         this.addDataSlot(intDataSlot(() -> this.afternoonWorkStart, value -> this.afternoonWorkStart = value));
         this.addDataSlot(intDataSlot(() -> this.eveningPlayStart, value -> this.eveningPlayStart = value));
         this.addDataSlot(intDataSlot(() -> this.nightSleepStart, value -> this.nightSleepStart = value));
+        this.addDataSlot(intDataSlot(() -> this.scheduleConfigured ? 1 : 0, value -> this.scheduleConfigured = value != 0));
         this.addDataSlot(intDataSlot(() -> this.action5Enabled ? 1 : 0, value -> this.action5Enabled = value != 0));
         this.addDataSlot(intDataSlot(() -> this.patrolRadius, value -> this.patrolRadius = value));
         for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
@@ -237,6 +246,14 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
 
     public int getPatrolRadius() {
         return this.patrolRadius;
+    }
+
+    public Component getNpcDisplayName() {
+        return this.npcDisplayName;
+    }
+
+    public boolean hasScheduleConfigured() {
+        return this.scheduleConfigured;
     }
 
     public boolean isExtraScheduleEnabled(int slot) {
@@ -353,6 +370,8 @@ public class NpcPatrolConfigMenu extends AbstractContainerMenu {
                 this.eveningPlayStart,
                 this.nightSleepStart
         );
+        this.npc.setScheduleConfigured(true);
+        this.scheduleConfigured = true;
         this.npc.setAction5Enabled(this.action5Enabled);
         for (int i = 0; i < EXTRA_SLOT_COUNT; i++) {
             this.npc.setExtraScheduleSlot(i, this.extraEnabled[i], this.extraStartTicks[i], this.fixedExtraActivityId(i));

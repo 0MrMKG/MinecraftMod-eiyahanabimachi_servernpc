@@ -11,6 +11,7 @@ import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -30,6 +31,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleMenuProvider;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -60,7 +62,11 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
@@ -74,6 +80,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final String EXTRA_EQUIPMENT_ITEMS_TAG = "ExtraEquipmentItems";
     private static final String ACTIVITY_POINTS_TAG = "ActivityPoints";
     private static final String ACTIVITY_SCHEDULE_TAG = "ActivitySchedule";
+    private static final String SCHEDULE_CONFIGURED_TAG = "ScheduleConfigured";
     private static final int MAX_ACTIVITY_POINTS = 256;
     private static final int SCHEDULE_STEP_TICKS = 250;
     private static final int DEFAULT_MORNING_WORK_START = 2000;
@@ -86,6 +93,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final int DEFAULT_EXTRA_1_START = 17000;
     private static final int DEFAULT_EXTRA_2_START = 19000;
     private static final int DEFAULT_EXTRA_3_START = 21000;
+    private static final int SLEEP_FALLBACK_SEARCH_RADIUS = 16;
+    private static final int SLEEP_FALLBACK_VERTICAL_RANGE = 4;
+    private static final int SLEEP_FALLBACK_CHECK_COOLDOWN = 20;
     public static final int DEFAULT_ACTIVITY_RADIUS = 10;
     public static final int MIN_ACTIVITY_RADIUS = 1;
     public static final int MAX_ACTIVITY_RADIUS = 32;
@@ -104,10 +114,14 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private int afternoonWorkStart = DEFAULT_AFTERNOON_WORK_START;
     private int eveningPlayStart = DEFAULT_EVENING_PLAY_START;
     private int nightSleepStart = DEFAULT_NIGHT_SLEEP_START;
+    private boolean scheduleConfigured = false;
     private boolean action5Enabled = false;
     private final int[] extraScheduleStartTicks = new int[]{DEFAULT_EXTRA_1_START, DEFAULT_EXTRA_2_START, DEFAULT_EXTRA_3_START};
     private final int[] extraScheduleActivityIds = new int[]{ActivityType.ACTION6.id(), ActivityType.ACTION7.id(), ActivityType.ACTION8.id()};
     private final boolean[] extraScheduleEnabled = new boolean[]{false, false, false};
+    @Nullable
+    private BlockPos sleepFallbackBed;
+    private int sleepFallbackCooldown;
 
     public ReimuGoodNpcEntity(EntityType<? extends ReimuGoodNpcEntity> entityType, Level level) {
         super(entityType, level);
@@ -401,7 +415,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     public ScheduleWindow getCurrentScheduleWindow(int timeOfDay) {
         List<ScheduleEntry> entries = this.buildScheduleEntries();
         if (entries.isEmpty()) {
-            return new ScheduleWindow(0, 24000, ActivityType.SLEEP);
+            return new ScheduleWindow(0, 24000, ActivityType.WORK);
         }
 
         int time = normalizePatrolTime(timeOfDay);
@@ -421,6 +435,24 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             endTick = (active.startTick() + 1) % 24000;
         }
         return new ScheduleWindow(active.startTick(), endTick, active.activityType());
+    }
+
+    public boolean isInLastScheduleWindow(int timeOfDay) {
+        List<ScheduleEntry> entries = this.buildScheduleEntries();
+        if (entries.isEmpty()) {
+            return false;
+        }
+
+        int time = normalizePatrolTime(timeOfDay);
+        int activeIndex = entries.size() - 1;
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i).startTick() <= time) {
+                activeIndex = i;
+            } else {
+                break;
+            }
+        }
+        return activeIndex == entries.size() - 1;
     }
 
     public int getMorningWorkStart() {
@@ -449,6 +481,14 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
 
     public boolean isAction5Enabled() {
         return this.action5Enabled;
+    }
+
+    public boolean hasScheduleConfigured() {
+        return this.scheduleConfigured;
+    }
+
+    public void setScheduleConfigured(boolean configured) {
+        this.scheduleConfigured = configured;
     }
 
     public void setAction5Enabled(boolean enabled) {
@@ -515,6 +555,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     }
 
     private List<ScheduleEntry> buildScheduleEntries() {
+        if (!this.scheduleConfigured) {
+            return List.of();
+        }
         List<ScheduleEntry> entries = new ArrayList<>();
         entries.add(new ScheduleEntry(this.morningWorkStart, ActivityType.SLEEP));
         entries.add(new ScheduleEntry(this.noonWanderStart, ActivityType.PLAY));
@@ -597,6 +640,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         }
         if (compound.contains(ACTIVITY_SCHEDULE_TAG, Tag.TAG_COMPOUND)) {
             CompoundTag scheduleTag = compound.getCompound(ACTIVITY_SCHEDULE_TAG);
+            this.scheduleConfigured = scheduleTag.contains(SCHEDULE_CONFIGURED_TAG, Tag.TAG_BYTE)
+                    ? scheduleTag.getBoolean(SCHEDULE_CONFIGURED_TAG)
+                    : true;
             this.setScheduleBoundaries(
                     scheduleTag.getInt("MorningWorkStart"),
                     scheduleTag.getInt("NoonWanderStart"),
@@ -640,6 +686,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             this.setExtraScheduleSlot(0, false, DEFAULT_EXTRA_1_START, ActivityType.ACTION6.id());
             this.setExtraScheduleSlot(1, false, DEFAULT_EXTRA_2_START, ActivityType.ACTION7.id());
             this.setExtraScheduleSlot(2, false, DEFAULT_EXTRA_3_START, ActivityType.ACTION8.id());
+            this.scheduleConfigured = false;
         }
         this.syncBackpackLockPlaceholders();
     }
@@ -662,6 +709,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         scheduleTag.putInt("AfternoonWorkStart", this.afternoonWorkStart);
         scheduleTag.putInt("EveningPlayStart", this.eveningPlayStart);
         scheduleTag.putInt("NightSleepStart", this.nightSleepStart);
+        scheduleTag.putBoolean(SCHEDULE_CONFIGURED_TAG, this.scheduleConfigured);
         scheduleTag.putBoolean(ACTION5_ENABLED_TAG, this.action5Enabled);
         for (int i = 0; i < EXTRA_SCHEDULE_SLOT_COUNT; i++) {
             scheduleTag.putBoolean("ExtraSlot" + i + "Enabled", this.extraScheduleEnabled[i]);
@@ -696,12 +744,126 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     @Override
     public void tick() {
         super.tick();
+        if (!this.level().isClientSide && this.isSleeping()) {
+            boolean inLastWindow = this.hasScheduleConfigured()
+                    && this.isInLastScheduleWindow((int) this.level().getDayTime());
+            if (!inLastWindow || this.isMovementStopped()) {
+                this.stopSleeping();
+                this.sleepFallbackBed = null;
+                this.sleepFallbackCooldown = 0;
+            }
+        }
+        if (this.isSleeping()) {
+            this.setDeltaMovement(Vec3.ZERO);
+            this.getNavigation().stop();
+            this.getSleepingPos().ifPresent(bedPos -> {
+                BlockState bedState = this.level().getBlockState(bedPos);
+                if (!(bedState.getBlock() instanceof BedBlock)) {
+                    this.stopSleeping();
+                    return;
+                }
+                Vec3 bedCenter = Vec3.atBottomCenterOf(bedPos).add(0.0D, 0.5625D, 0.0D);
+                if (this.distanceToSqr(bedCenter) > 0.04D) {
+                    this.setPos(bedCenter.x, bedCenter.y, bedCenter.z);
+                }
+            });
+        }
+        if (!this.level().isClientSide) {
+            this.updateSleepFallbackState();
+        }
         if (this.isMovementStopped()) {
             this.setDeltaMovement(Vec3.ZERO);
             this.xxa = 0.0F;
             this.zza = 0.0F;
             this.setTarget(null);
         }
+    }
+
+    private void updateSleepFallbackState() {
+        this.sleepFallbackBed = null;
+        this.sleepFallbackCooldown = 0;
+    }
+
+    private void forceSleepAt(BlockPos bedPos) {
+        BlockPos headPos = this.resolveBedHeadPos(bedPos);
+        if (headPos == null) {
+            return;
+        }
+        Vec3 bedCenter = Vec3.atBottomCenterOf(headPos).add(0.0D, 0.5625D, 0.0D);
+        this.getNavigation().stop();
+        this.setDeltaMovement(Vec3.ZERO);
+        this.moveTo(bedCenter.x, bedCenter.y, bedCenter.z, this.getYRot(), this.getXRot());
+        this.startSleeping(headPos);
+        this.sleepFallbackBed = headPos;
+    }
+
+    @Nullable
+    private BlockPos findNearestBedAround(BlockPos center, int horizontalRadius, int verticalRadius) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        BlockPos best = null;
+        double bestDist = Double.MAX_VALUE;
+
+        int minY = Math.max(this.level().getMinBuildHeight(), center.getY() - verticalRadius);
+        int maxY = Math.min(this.level().getMaxBuildHeight() - 1, center.getY() + verticalRadius);
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = center.getX() - horizontalRadius; x <= center.getX() + horizontalRadius; x++) {
+                for (int z = center.getZ() - horizontalRadius; z <= center.getZ() + horizontalRadius; z++) {
+                    cursor.set(x, y, z);
+                    BlockPos headPos = this.resolveBedHeadPos(cursor);
+                    if (headPos == null || !this.isUsableBed(headPos)) {
+                        continue;
+                    }
+                    double dist = this.distanceToSqr(Vec3.atCenterOf(headPos));
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        best = headPos.immutable();
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    @Nullable
+    private BlockPos resolveBedHeadPos(BlockPos bedPos) {
+        BlockState state = this.level().getBlockState(bedPos);
+        if (!(state.getBlock() instanceof BedBlock)) {
+            return null;
+        }
+        if (!state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
+            return bedPos.immutable();
+        }
+        if (state.getValue(BedBlock.PART) == BedPart.HEAD) {
+            return bedPos.immutable();
+        }
+        return bedPos.relative(state.getValue(BedBlock.FACING)).immutable();
+    }
+
+    private boolean isUsableBed(BlockPos bedPos) {
+        BlockPos headPos = this.resolveBedHeadPos(bedPos);
+        if (headPos == null) {
+            return false;
+        }
+        BlockState state = this.level().getBlockState(headPos);
+        if (!(state.getBlock() instanceof BedBlock)) {
+            return false;
+        }
+        return !state.hasProperty(BedBlock.OCCUPIED)
+                || !state.getValue(BedBlock.OCCUPIED)
+                || this.isSleeping();
+    }
+
+    @Override
+    public boolean isPushable() {
+        return !this.isSleeping() && super.isPushable();
+    }
+
+    @Override
+    protected void doPush(Entity entity) {
+        if (this.isSleeping()) {
+            return;
+        }
+        super.doPush(entity);
     }
 
     @Override
@@ -759,6 +921,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
 
         @Override
         public boolean canUse() {
+            if (this.mob.isInLastScheduleWindow((int) this.mob.level().getDayTime())) {
+                return false;
+            }
             if (!this.mob.canPickUpLoot() || this.mob.getTarget() != null) {
                 return false;
             }
@@ -780,6 +945,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
 
         @Override
         public boolean canContinueToUse() {
+            if (this.mob.isInLastScheduleWindow((int) this.mob.level().getDayTime())) {
+                return false;
+            }
             return this.targetItem != null
                     && this.targetItem.isAlive()
                     && !this.targetItem.hasPickUpDelay()
@@ -823,7 +991,11 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     }
 
     private static class PatrolRouteGoal extends Goal {
-        private static final double ARRIVAL_RADIUS = 1.0D;
+        private static final double ARRIVAL_RADIUS = 3.0D;
+        private static final int BED_SEARCH_RADIUS = 16;
+        private static final int BED_SEARCH_VERTICAL_RANGE = 4;
+        private static final int BED_SCAN_INTERVAL = 20;
+        private static final int REPATH_INTERVAL = 20;
         private final ReimuGoodNpcEntity mob;
         private final double speedModifier;
         @Nullable
@@ -832,8 +1004,13 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         private ActivityPoint currentPoint;
         @Nullable
         private BlockPos navigateTarget;
-        private boolean pendingArrival;
+        @Nullable
+        private BlockPos sleepBedTarget;
+        private boolean navigatingToPoint;
+        private boolean seekingBed;
+        private int currentWindowStartTick = -1;
         private int repathDelay;
+        private int bedScanDelay;
 
         private PatrolRouteGoal(ReimuGoodNpcEntity mob, double speedModifier) {
             this.mob = mob;
@@ -843,71 +1020,136 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
 
         @Override
         public boolean canUse() {
-            if (this.mob.isMovementStopped() || this.mob.getTarget() != null) {
+            if (this.mob.isMovementStopped()) {
+                if (this.mob.isSleeping()) {
+                    this.mob.stopSleeping();
+                }
+                this.resetRuntimeState();
                 return false;
             }
-            if (this.mob.activityPoints.isEmpty()) {
-                this.currentActivity = null;
-                this.currentPoint = null;
-                this.navigateTarget = null;
-                this.pendingArrival = false;
+
+            if (!this.mob.hasScheduleConfigured() || this.mob.activityPoints.isEmpty()) {
+                if (this.mob.isSleeping()) {
+                    this.mob.stopSleeping();
+                }
+                this.resetAllState();
+                this.mob.getNavigation().stop();
                 this.mob.clearRestriction();
                 return false;
             }
 
             if (this.currentPoint != null && !this.mob.activityPoints.contains(this.currentPoint)) {
                 this.currentPoint = null;
-                this.pendingArrival = false;
+                this.navigatingToPoint = false;
+                this.clearBedState();
             }
 
-            ActivityType activeActivity = this.mob.getScheduledActivity((int) this.mob.level().getDayTime());
-            if (this.currentPoint == null || this.currentActivity != activeActivity) {
+            int now = (int) this.mob.level().getDayTime();
+            ScheduleWindow activeWindow = this.mob.getCurrentScheduleWindow(now);
+            ActivityType activeActivity = activeWindow.activityType();
+            int activeWindowStartTick = activeWindow.startTick();
+            boolean switchedWindow = this.currentWindowStartTick != activeWindowStartTick;
+
+            if (this.mob.getTarget() != null) {
+                if (this.shouldSeekBedNow(now)) {
+                    this.mob.setTarget(null);
+                } else {
+                    return false;
+                }
+            }
+
+            if (this.currentPoint == null || this.currentActivity != activeActivity || switchedWindow) {
+                if (this.mob.isSleeping()) {
+                    this.mob.stopSleeping();
+                }
                 this.currentActivity = activeActivity;
+                this.currentWindowStartTick = activeWindowStartTick;
                 this.currentPoint = this.pickPointForActivity(activeActivity);
                 if (this.currentPoint == null) {
-                    this.navigateTarget = null;
-                    this.pendingArrival = false;
+                    this.resetRuntimeState();
+                    this.mob.getNavigation().stop();
                     this.mob.clearRestriction();
                     return false;
                 }
-                this.pendingArrival = true;
+
+                this.navigatingToPoint = true;
+                this.clearBedState();
+                this.navigateTarget = this.currentPoint.center();
+                this.applyApproachRestriction(this.currentPoint);
+
+                if (this.isInsideArrivalRadius(this.currentPoint)) {
+                    this.onArrivedAtPoint(now);
+                    if (this.seekingBed) {
+                        this.prepareBedNavigation(this.currentPoint);
+                        return !this.mob.isSleeping();
+                    }
+                    return false;
+                }
+                return true;
+            }
+
+            if (this.navigatingToPoint) {
                 this.navigateTarget = this.currentPoint.center();
                 if (this.isInsideArrivalRadius(this.currentPoint)) {
-                    this.onArrivedAtPoint();
+                    this.onArrivedAtPoint(now);
+                    if (this.seekingBed) {
+                        this.prepareBedNavigation(this.currentPoint);
+                        return !this.mob.isSleeping();
+                    }
                     return false;
                 }
                 this.applyApproachRestriction(this.currentPoint);
                 return true;
             }
 
-            if (this.pendingArrival) {
-                this.navigateTarget = this.currentPoint.center();
-                if (this.isInsideArrivalRadius(this.currentPoint)) {
-                    this.onArrivedAtPoint();
+            if (this.seekingBed) {
+                if (!this.shouldSeekBedNow(now)) {
+                    this.clearBedState();
                     return false;
                 }
-                this.applyApproachRestriction(this.currentPoint);
-                return true;
+                if (this.mob.isSleeping()) {
+                    return false;
+                }
+                this.prepareBedNavigation(this.currentPoint);
+                return !this.mob.isSleeping();
             }
 
             this.applyRestriction(this.currentPoint);
-            this.navigateTarget = null;
             return false;
         }
 
         @Override
         public boolean canContinueToUse() {
-            return !this.mob.isMovementStopped()
-                    && this.mob.getTarget() == null
-                    && this.navigateTarget != null
-                    && this.currentPoint != null
-                    && this.pendingArrival
-                    && !this.isInsideArrivalRadius(this.currentPoint);
+            if (this.currentPoint == null || this.mob.isMovementStopped()) {
+                return false;
+            }
+
+            int now = (int) this.mob.level().getDayTime();
+            ScheduleWindow activeWindow = this.mob.getCurrentScheduleWindow(now);
+            if (this.currentActivity != activeWindow.activityType()
+                    || this.currentWindowStartTick != activeWindow.startTick()) {
+                return false;
+            }
+
+            if (this.mob.getTarget() != null) {
+                if (this.shouldSeekBedNow(now)) {
+                    this.mob.setTarget(null);
+                } else {
+                    return false;
+                }
+            }
+
+            if (this.navigatingToPoint) {
+                return this.navigateTarget != null && !this.isInsideArrivalRadius(this.currentPoint);
+            }
+
+            return this.seekingBed && !this.mob.isSleeping() && this.shouldSeekBedNow(now);
         }
 
         @Override
         public void start() {
             this.repathDelay = 0;
+            this.bedScanDelay = 0;
             if (this.navigateTarget != null) {
                 this.mob.getNavigation().moveTo(
                         this.navigateTarget.getX() + 0.5D,
@@ -926,46 +1168,306 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
 
         @Override
         public void tick() {
-            if (this.currentPoint == null || this.navigateTarget == null) {
+            if (this.currentPoint == null) {
                 this.mob.getNavigation().stop();
                 return;
             }
-            if (this.isInsideArrivalRadius(this.currentPoint)) {
-                this.onArrivedAtPoint();
+
+            if (this.navigatingToPoint) {
+                if (this.navigateTarget == null) {
+                    this.navigateTarget = this.currentPoint.center();
+                }
+                if (this.isInsideArrivalRadius(this.currentPoint)) {
+                    this.onArrivedAtPoint((int) this.mob.level().getDayTime());
+                    return;
+                }
+                if (--this.repathDelay <= 0) {
+                    this.repathDelay = REPATH_INTERVAL;
+                    this.mob.getNavigation().moveTo(
+                            this.navigateTarget.getX() + 0.5D,
+                            this.navigateTarget.getY(),
+                            this.navigateTarget.getZ() + 0.5D,
+                            this.speedModifier
+                    );
+                }
                 return;
             }
-            if (--this.repathDelay <= 0) {
-                this.repathDelay = 20;
-                this.mob.getNavigation().moveTo(
-                        this.navigateTarget.getX() + 0.5D,
-                        this.navigateTarget.getY(),
-                        this.navigateTarget.getZ() + 0.5D,
-                        this.speedModifier
-                );
+
+            if (this.seekingBed) {
+                int now = (int) this.mob.level().getDayTime();
+                if (!this.shouldSeekBedNow(now)) {
+                    this.clearBedState();
+                    this.mob.getNavigation().stop();
+                    return;
+                }
+                if (this.mob.isSleeping()) {
+                    this.clearBedState();
+                    this.mob.getNavigation().stop();
+                    return;
+                }
+
+                this.prepareBedNavigation(this.currentPoint);
+                if (this.mob.isSleeping()) {
+                    this.clearBedState();
+                    this.mob.getNavigation().stop();
+                    return;
+                }
+
+                if (this.navigateTarget == null) {
+                    this.mob.getNavigation().stop();
+                    return;
+                }
+
+                if (--this.repathDelay <= 0) {
+                    this.repathDelay = REPATH_INTERVAL;
+                    this.mob.getNavigation().moveTo(
+                            this.navigateTarget.getX() + 0.5D,
+                            this.navigateTarget.getY(),
+                            this.navigateTarget.getZ() + 0.5D,
+                            this.speedModifier
+                    );
+                }
+                return;
             }
+
+            this.mob.getNavigation().stop();
         }
 
-        private void onArrivedAtPoint() {
-            this.pendingArrival = false;
+        private void onArrivedAtPoint(int now) {
+            this.navigatingToPoint = false;
             this.navigateTarget = null;
-            if (this.currentPoint != null) {
-                this.applyRestriction(this.currentPoint);
-            }
             this.mob.getNavigation().stop();
+            if (this.currentPoint == null) {
+                this.clearBedState();
+                return;
+            }
+
+            if (this.shouldSeekBedNow(now)) {
+                this.seekingBed = true;
+                this.sleepBedTarget = null;
+                this.repathDelay = 0;
+                this.bedScanDelay = 0;
+                this.mob.clearRestriction();
+                return;
+            }
+
+            this.clearBedState();
+            this.applyRestriction(this.currentPoint);
+        }
+
+        private boolean shouldSeekBedNow(int dayTime) {
+            return this.mob.isInLastScheduleWindow(dayTime);
+        }
+
+        private void prepareBedNavigation(ActivityPoint point) {
+            if (this.sleepBedTarget != null && !this.isValidBedTarget(this.sleepBedTarget, point)) {
+                this.sleepBedTarget = null;
+            }
+
+            if (this.sleepBedTarget == null) {
+                if (this.bedScanDelay > 0) {
+                    this.bedScanDelay--;
+                    this.navigateTarget = null;
+                    return;
+                }
+                this.bedScanDelay = BED_SCAN_INTERVAL;
+                this.sleepBedTarget = this.findNearestBed(point);
+            }
+
+            if (this.sleepBedTarget == null) {
+                this.navigateTarget = null;
+                return;
+            }
+
+            this.navigateTarget = this.sleepBedTarget;
+            if (!this.isAtBed(this.sleepBedTarget)) {
+                return;
+            }
+
+            if (this.tryStartSleeping(this.sleepBedTarget, point)) {
+                this.navigateTarget = null;
+                return;
+            }
+
+            this.sleepBedTarget = null;
+            this.navigateTarget = null;
+            this.repathDelay = 0;
+            this.bedScanDelay = 0;
+        }
+
+        private boolean tryStartSleeping(BlockPos bedPos, ActivityPoint point) {
+            if (this.mob.level().isClientSide || this.mob.isSleeping()) {
+                return this.mob.isSleeping();
+            }
+
+            BlockState state = this.mob.level().getBlockState(bedPos);
+            BlockPos headPos = this.resolveBedHeadPos(bedPos, state);
+            if (headPos == null || !this.isValidBedTarget(headPos, point)) {
+                return false;
+            }
+
+            if (this.isBedOccupiedByOther(headPos)) {
+                return false;
+            }
+
+            this.clearGhostOccupiedFlag(headPos);
+            this.mob.getNavigation().stop();
+            this.mob.startSleeping(headPos);
+            if (this.mob.isSleeping()) {
+                return true;
+            }
+
+            Vec3 bedCenter = Vec3.atBottomCenterOf(headPos).add(0.0D, 0.5625D, 0.0D);
+            this.mob.setDeltaMovement(Vec3.ZERO);
+            this.mob.moveTo(bedCenter.x, bedCenter.y, bedCenter.z, this.mob.getYRot(), this.mob.getXRot());
+            this.mob.startSleeping(headPos);
+            return this.mob.isSleeping();
+        }
+
+        private boolean isAtBed(BlockPos bedPos) {
+            return this.mob.distanceToSqr(Vec3.atCenterOf(bedPos)) <= 2.25D;
+        }
+
+        @Nullable
+        private BlockPos findNearestBed(ActivityPoint point) {
+            BlockPos center = point.center();
+            int radius = Math.max(2, Math.min(BED_SEARCH_RADIUS, point.radius()));
+            double radiusSqr = (radius + 0.5D) * (radius + 0.5D);
+            int minY = Math.max(this.mob.level().getMinBuildHeight(), center.getY() - BED_SEARCH_VERTICAL_RANGE);
+            int maxY = Math.min(this.mob.level().getMaxBuildHeight() - 1, center.getY() + BED_SEARCH_VERTICAL_RANGE);
+            BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+
+            BlockPos best = null;
+            double bestDist = Double.MAX_VALUE;
+            for (int y = minY; y <= maxY; y++) {
+                for (int x = center.getX() - radius; x <= center.getX() + radius; x++) {
+                    for (int z = center.getZ() - radius; z <= center.getZ() + radius; z++) {
+                        cursor.set(x, y, z);
+                        BlockState state = this.mob.level().getBlockState(cursor);
+                        if (!(state.getBlock() instanceof BedBlock)) {
+                            continue;
+                        }
+                        BlockPos headPos = this.resolveBedHeadPos(cursor, state);
+                        if (headPos == null) {
+                            continue;
+                        }
+                        if (Vec3.atCenterOf(center).distanceToSqr(Vec3.atCenterOf(headPos)) > radiusSqr) {
+                            continue;
+                        }
+                        if (!this.isValidBedTarget(headPos, point)) {
+                            continue;
+                        }
+                        double dist = this.mob.distanceToSqr(Vec3.atCenterOf(headPos));
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            best = headPos.immutable();
+                        }
+                    }
+                }
+            }
+            return best;
+        }
+
+        @Nullable
+        private BlockPos resolveBedHeadPos(BlockPos bedPos, BlockState state) {
+            if (!(state.getBlock() instanceof BedBlock)) {
+                return null;
+            }
+            if (!state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
+                return bedPos.immutable();
+            }
+            BedPart part = state.getValue(BedBlock.PART);
+            return (part == BedPart.HEAD ? bedPos : bedPos.relative(state.getValue(BedBlock.FACING))).immutable();
+        }
+
+        private boolean isValidBedTarget(BlockPos bedPos, ActivityPoint point) {
+            if (bedPos == null || point == null) {
+                return false;
+            }
+            BlockState state = this.mob.level().getBlockState(bedPos);
+            if (!(state.getBlock() instanceof BedBlock)) {
+                return false;
+            }
+
+            int radius = Math.max(2, Math.min(BED_SEARCH_RADIUS, point.radius()));
+            double radiusSqr = (radius + 0.5D) * (radius + 0.5D);
+            if (Vec3.atCenterOf(point.center()).distanceToSqr(Vec3.atCenterOf(bedPos)) > radiusSqr) {
+                return false;
+            }
+            return !this.isBedOccupiedByOther(bedPos);
+        }
+
+        private boolean isBedOccupiedByOther(BlockPos bedPos) {
+            BlockState state = this.mob.level().getBlockState(bedPos);
+            BlockPos headPos = this.resolveBedHeadPos(bedPos, state);
+            if (headPos == null) {
+                return true;
+            }
+
+            AABB checkBox = new AABB(headPos).inflate(1.5D, 1.5D, 1.5D);
+            for (LivingEntity living : this.mob.level().getEntitiesOfClass(
+                    LivingEntity.class,
+                    checkBox,
+                    entity -> entity != this.mob && entity.isSleeping()
+            )) {
+                BlockPos sleepingPos = living.getSleepingPos().orElse(null);
+                if (sleepingPos == null) {
+                    continue;
+                }
+                BlockState sleepingState = this.mob.level().getBlockState(sleepingPos);
+                BlockPos sleepingHead = this.resolveBedHeadPos(sleepingPos, sleepingState);
+                if (headPos.equals(sleepingHead != null ? sleepingHead : sleepingPos)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void clearGhostOccupiedFlag(BlockPos bedPos) {
+            BlockState state = this.mob.level().getBlockState(bedPos);
+            if (!(state.getBlock() instanceof BedBlock) || !state.hasProperty(BedBlock.OCCUPIED)) {
+                return;
+            }
+            if (!state.getValue(BedBlock.OCCUPIED) || this.isBedOccupiedByOther(bedPos)) {
+                return;
+            }
+            this.mob.level().setBlock(bedPos, state.setValue(BedBlock.OCCUPIED, false), 3);
         }
 
         @Nullable
         private ActivityPoint pickPointForActivity(ActivityType activityType) {
-            List<ActivityPoint> candidatePoints = this.mob.activityPoints.stream()
-                    .filter(point -> point.activityType() == activityType)
-                    .toList();
-            if (candidatePoints.isEmpty()) {
-                candidatePoints = this.mob.activityPoints;
-            }
+            List<ActivityPoint> candidatePoints = this.getCandidatePoints(activityType);
             if (candidatePoints.isEmpty()) {
                 return null;
             }
             return candidatePoints.get(this.mob.getRandom().nextInt(candidatePoints.size()));
+        }
+
+        private List<ActivityPoint> getCandidatePoints(ActivityType activityType) {
+            return this.mob.activityPoints.stream()
+                    .filter(point -> point.activityType() == activityType)
+                    .toList();
+        }
+
+        private void resetRuntimeState() {
+            this.navigatingToPoint = false;
+            this.clearBedState();
+            this.navigateTarget = null;
+            this.repathDelay = 0;
+            this.bedScanDelay = 0;
+        }
+
+        private void resetAllState() {
+            this.currentActivity = null;
+            this.currentPoint = null;
+            this.currentWindowStartTick = -1;
+            this.resetRuntimeState();
+        }
+
+        private void clearBedState() {
+            this.seekingBed = false;
+            this.sleepBedTarget = null;
+            this.bedScanDelay = 0;
         }
 
         private void applyRestriction(ActivityPoint point) {
@@ -977,11 +1479,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         }
 
         private boolean isInsideArrivalRadius(ActivityPoint point) {
-            double radius = ARRIVAL_RADIUS;
-            return this.mob.distanceToSqr(Vec3.atCenterOf(point.center())) <= radius * radius;
+            return this.mob.distanceToSqr(Vec3.atCenterOf(point.center())) <= ARRIVAL_RADIUS * ARRIVAL_RADIUS;
         }
     }
-
     public enum ActivityType {
         SLEEP(0, "action1"),
         PLAY(1, "action2"),
@@ -1066,3 +1566,4 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         return stack.is(Items.BLACK_STAINED_GLASS_PANE) && stack.has(DataComponents.CUSTOM_NAME);
     }
 }
+

@@ -5,6 +5,7 @@ import com.servernpc.entity.ReimuGoodNpcEntity;
 import com.servernpc.item.NpcInventoryToolItem;
 import com.servernpc.item.NpcPatrolWandItem;
 import com.servernpc.item.StopMovementToolItem;
+import com.servernpc.item.TimeAccelerationToolItem;
 import com.servernpc.menu.NpcInventoryMenu;
 import com.servernpc.menu.NpcPatrolConfigMenu;
 import org.slf4j.Logger;
@@ -77,6 +78,10 @@ public class eiyahanabimachiservernpc {
             "npc_patrol_wand",
             () -> new NpcPatrolWandItem(new Item.Properties().stacksTo(1))
     );
+    public static final DeferredItem<Item> TIME_ACCELERATION_TOOL = ITEMS.register(
+            "time_acceleration_tool",
+            () -> new TimeAccelerationToolItem(new Item.Properties().stacksTo(1))
+    );
     public static final DeferredHolder<MenuType<?>, MenuType<NpcInventoryMenu>> NPC_INVENTORY_MENU = MENU_TYPES.register(
             "npc_inventory",
             () -> IMenuTypeExtension.create(
@@ -106,6 +111,7 @@ public class eiyahanabimachiservernpc {
                         output.accept(STOP_MOVEMENT_TOOL.get());
                         output.accept(NPC_INVENTORY_TOOL.get());
                         output.accept(NPC_PATROL_WAND.get());
+                        output.accept(TIME_ACCELERATION_TOOL.get());
                         output.accept(HAKUREI_REIMU_GOOD_SPAWN_EGG.get());
                         output.accept(HINANAWI_TENSHI_SPAWN_EGG.get());
                         output.accept(REMILIA_SCARLET_SPAWN_EGG.get());

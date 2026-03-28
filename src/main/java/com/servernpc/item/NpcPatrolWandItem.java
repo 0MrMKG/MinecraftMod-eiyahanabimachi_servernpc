@@ -161,6 +161,30 @@ public class NpcPatrolWandItem extends Item {
             return;
         }
 
+        String npcName = npc.getName().getString();
+        if (!npc.hasScheduleConfigured()) {
+            if (serverPlayer.tickCount % 20 == 0) {
+                serverPlayer.displayClientMessage(
+                        Component.translatable(
+                                "message." + eiyahanabimachiservernpc.MODID + ".patrol_wand.schedule_unset",
+                                npc.getName()
+                        ),
+                        true
+                );
+            }
+            for (ActivityPointInfo pointInfo : npc.getActivityPointInfos()) {
+                BlockPos pos = pointInfo.center();
+                if (serverPlayer.blockPosition().distSqr(pos) <= 64.0D * 64.0D) {
+                    String markerText = this.activityTypeText(pointInfo.activityType())
+                            + " | NPC:" + npcName
+                            + " | 时间表:未设置"
+                            + " | 半径:" + pointInfo.radius();
+                    DebugPackets.sendGameTestAddMarker(serverLevel, pos, markerText, 0xFFFFFFFF, 1100);
+                }
+            }
+            return;
+        }
+
         int currentTickOfDay = Math.floorMod((int) serverLevel.getDayTime(), 24000);
         ActivityType currentActivity = npc.getScheduledActivity(currentTickOfDay);
         String nowText = formatTime(currentTickOfDay);
@@ -169,7 +193,8 @@ public class NpcPatrolWandItem extends Item {
         if (serverPlayer.tickCount % 20 == 0) {
             serverPlayer.displayClientMessage(
                     Component.translatable(
-                            "message." + eiyahanabimachiservernpc.MODID + ".patrol_wand.now_status",
+                            "message." + eiyahanabimachiservernpc.MODID + ".patrol_wand.now_status_with_npc",
+                            npc.getName(),
                             currentActivityText,
                             nowText,
                             currentTickOfDay
@@ -182,6 +207,7 @@ public class NpcPatrolWandItem extends Item {
             BlockPos pos = pointInfo.center();
             if (serverPlayer.blockPosition().distSqr(pos) <= 64.0D * 64.0D) {
                 String markerText = this.activityTypeText(pointInfo.activityType())
+                        + " | NPC:" + npcName
                         + " | \u5f53\u524d:" + currentActivityText
                         + " " + nowText
                         + " | \u65f6\u95f4\u6bb5:" + currentActivityRangeText
