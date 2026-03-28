@@ -823,6 +823,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     }
 
     private static class PatrolRouteGoal extends Goal {
+        private static final double ARRIVAL_RADIUS = 1.0D;
         private final ReimuGoodNpcEntity mob;
         private final double speedModifier;
         @Nullable
@@ -831,6 +832,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         private ActivityPoint currentPoint;
         @Nullable
         private BlockPos navigateTarget;
+        private boolean pendingArrival;
         private int repathDelay;
 
         private PatrolRouteGoal(ReimuGoodNpcEntity mob, double speedModifier) {
@@ -848,12 +850,14 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                 this.currentActivity = null;
                 this.currentPoint = null;
                 this.navigateTarget = null;
+                this.pendingArrival = false;
                 this.mob.clearRestriction();
                 return false;
             }
 
             if (this.currentPoint != null && !this.mob.activityPoints.contains(this.currentPoint)) {
                 this.currentPoint = null;
+                this.pendingArrival = false;
             }
 
             ActivityType activeActivity = this.mob.getScheduledActivity((int) this.mob.level().getDayTime());
@@ -862,12 +866,28 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                 this.currentPoint = this.pickPointForActivity(activeActivity);
                 if (this.currentPoint == null) {
                     this.navigateTarget = null;
+                    this.pendingArrival = false;
                     this.mob.clearRestriction();
                     return false;
                 }
-                this.applyRestriction(this.currentPoint);
+                this.pendingArrival = true;
                 this.navigateTarget = this.currentPoint.center();
-                return !this.isInsideRadius(this.currentPoint);
+                if (this.isInsideArrivalRadius(this.currentPoint)) {
+                    this.onArrivedAtPoint();
+                    return false;
+                }
+                this.applyApproachRestriction(this.currentPoint);
+                return true;
+            }
+
+            if (this.pendingArrival) {
+                this.navigateTarget = this.currentPoint.center();
+                if (this.isInsideArrivalRadius(this.currentPoint)) {
+                    this.onArrivedAtPoint();
+                    return false;
+                }
+                this.applyApproachRestriction(this.currentPoint);
+                return true;
             }
 
             this.applyRestriction(this.currentPoint);
@@ -881,8 +901,8 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                     && this.mob.getTarget() == null
                     && this.navigateTarget != null
                     && this.currentPoint != null
-                    && !this.mob.getNavigation().isDone()
-                    && !this.isInsideRadius(this.currentPoint);
+                    && this.pendingArrival
+                    && !this.isInsideArrivalRadius(this.currentPoint);
         }
 
         @Override
@@ -910,8 +930,8 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                 this.mob.getNavigation().stop();
                 return;
             }
-            if (this.isInsideRadius(this.currentPoint)) {
-                this.mob.getNavigation().stop();
+            if (this.isInsideArrivalRadius(this.currentPoint)) {
+                this.onArrivedAtPoint();
                 return;
             }
             if (--this.repathDelay <= 0) {
@@ -923,6 +943,15 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
                         this.speedModifier
                 );
             }
+        }
+
+        private void onArrivedAtPoint() {
+            this.pendingArrival = false;
+            this.navigateTarget = null;
+            if (this.currentPoint != null) {
+                this.applyRestriction(this.currentPoint);
+            }
+            this.mob.getNavigation().stop();
         }
 
         @Nullable
@@ -943,8 +972,12 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             this.mob.restrictTo(point.center(), point.radius());
         }
 
-        private boolean isInsideRadius(ActivityPoint point) {
-            double radius = point.radius() + 0.5D;
+        private void applyApproachRestriction(ActivityPoint point) {
+            this.mob.restrictTo(point.center(), (int) Math.ceil(ARRIVAL_RADIUS));
+        }
+
+        private boolean isInsideArrivalRadius(ActivityPoint point) {
+            double radius = ARRIVAL_RADIUS;
             return this.mob.distanceToSqr(Vec3.atCenterOf(point.center())) <= radius * radius;
         }
     }

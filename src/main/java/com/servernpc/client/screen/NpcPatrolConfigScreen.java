@@ -16,7 +16,14 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
     private static final int TIMELINE_Y = 108;
     private static final int TIMELINE_W = 252;
     private static final int TIMELINE_H = 14;
-    private static final float TIMELINE_TIME_SCALE = 0.78F;
+    private static final int DAY_NIGHT_BAR_OFFSET_Y = -10;
+    private static final int DAY_NIGHT_BAR_H = 6;
+    private static final int DAY_NIGHT_SUN_TICK = 6000;
+    private static final int DAY_NIGHT_MOON_TICK = 18000;
+    private static final int DAY_NIGHT_TRANSITION_HALF = 1000;
+    private static final int DAY_COLOR = 0xFF9ED3FF;
+    private static final int NIGHT_COLOR = 0xFF27345C;
+    private static final int DAY_NIGHT_TOP_HIGHLIGHT = 0x66FFFFFF;
     private static final int HANDLE_PICK_HALF_WIDTH = 4;
     private static final int HANDLE_PICK_TOP = 5;
     private static final int HANDLE_PICK_BOTTOM = 20;
@@ -127,6 +134,7 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
         int top = this.topPos;
         guiGraphics.fill(left, top, left + this.imageWidth, top + this.imageHeight, PANEL_BG);
         this.drawPanelBorder(guiGraphics, left, top, this.imageWidth, this.imageHeight);
+        this.drawDayNightBar(guiGraphics, left + TIMELINE_X, top + TIMELINE_Y + DAY_NIGHT_BAR_OFFSET_Y, TIMELINE_W, DAY_NIGHT_BAR_H);
         this.drawTimelineBar(guiGraphics, left + TIMELINE_X, top + TIMELINE_Y, TIMELINE_W, TIMELINE_H);
         this.drawTimelineHandles(guiGraphics, left + TIMELINE_X, top + TIMELINE_Y, TIMELINE_W, TIMELINE_H);
     }
@@ -150,7 +158,6 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
 
         guiGraphics.drawString(this.font, Component.translatable("gui." + eiyahanabimachiservernpc.MODID + ".activity_select"), 10, 28, 0x404040, false);
         guiGraphics.drawString(this.font, Component.translatable("gui." + eiyahanabimachiservernpc.MODID + ".schedule_adjust"), 10, 76, 0x404040, false);
-        this.drawTimelineTimeLabels(guiGraphics);
 
         guiGraphics.drawString(
                 this.font,
@@ -341,31 +348,62 @@ public class NpcPatrolConfigScreen extends AbstractContainerScreen<NpcPatrolConf
         return String.format("%02d:%02d", hours, minutes);
     }
 
-    private void drawTimelineTimeLabels(GuiGraphics guiGraphics) {
-        int[] ticks = this.getDisplayStartTicks();
-
-        int baseX = this.leftPos + TIMELINE_X;
-        int baseY = this.topPos + 126;
-        for (int tick : ticks) {
-            this.drawScaledTimelineTime(guiGraphics, formatTime(tick), baseX, baseY, tick);
+    private void drawDayNightBar(GuiGraphics guiGraphics, int x, int y, int width, int height) {
+        for (int px = 0; px < width; px++) {
+            int tick = (px * 24000) / width;
+            guiGraphics.fill(x + px, y, x + px + 1, y + height, this.dayNightColor(tick));
         }
+        guiGraphics.fill(x, y, x + width, y + 1, DAY_NIGHT_TOP_HIGHLIGHT);
+        this.drawSunIcon(guiGraphics, x + (DAY_NIGHT_SUN_TICK * width) / 24000 - 3, y - 1);
+        this.drawMoonIcon(guiGraphics, x + (DAY_NIGHT_MOON_TICK * width) / 24000 - 3, y - 1);
     }
 
-    private void drawScaledTimelineTime(GuiGraphics guiGraphics, String text, int timelineX, int labelY, int tick) {
-        int markerX = timelineX + (Mth.positiveModulo(tick, 24000) * TIMELINE_W) / 24000;
-        int originalWidth = this.font.width(text);
-        int scaledWidth = Math.round(originalWidth * TIMELINE_TIME_SCALE);
-        int labelX = markerX + 2 - Math.round(scaledWidth / 2.0F);
-        int minX = timelineX;
-        int maxX = timelineX + TIMELINE_W - scaledWidth;
-        labelX = Mth.clamp(labelX, minX, maxX);
+    private int dayNightColor(int tickOfDay) {
+        int tick = Mth.positiveModulo(tickOfDay, 24000);
+        int sunriseStart = 24000 - DAY_NIGHT_TRANSITION_HALF;
+        int sunriseEnd = DAY_NIGHT_TRANSITION_HALF;
+        int sunsetStart = 12000 - DAY_NIGHT_TRANSITION_HALF;
+        int sunsetEnd = 12000 + DAY_NIGHT_TRANSITION_HALF;
 
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().scale(TIMELINE_TIME_SCALE, TIMELINE_TIME_SCALE, 1.0F);
-        int drawX = Math.round(labelX / TIMELINE_TIME_SCALE);
-        int drawY = Math.round(labelY / TIMELINE_TIME_SCALE);
-        guiGraphics.drawString(this.font, text, drawX, drawY, 0x404040, false);
-        guiGraphics.pose().popPose();
+        if (tick >= sunriseEnd && tick < sunsetStart) {
+            return DAY_COLOR;
+        }
+        if (tick >= sunsetEnd && tick < sunriseStart) {
+            return NIGHT_COLOR;
+        }
+        if (tick >= sunsetStart && tick < sunsetEnd) {
+            float t = (tick - sunsetStart) / (float) (sunsetEnd - sunsetStart);
+            return this.lerpColor(DAY_COLOR, NIGHT_COLOR, t);
+        }
+        int sunrisePos = tick >= sunriseStart ? tick - sunriseStart : tick + (24000 - sunriseStart);
+        float t = sunrisePos / (float) (DAY_NIGHT_TRANSITION_HALF * 2);
+        return this.lerpColor(NIGHT_COLOR, DAY_COLOR, t);
+    }
+
+    private int lerpColor(int from, int to, float t) {
+        float clamped = Mth.clamp(t, 0.0F, 1.0F);
+        int a = (int) (this.lerpChannel((from >>> 24) & 0xFF, (to >>> 24) & 0xFF, clamped));
+        int r = (int) (this.lerpChannel((from >>> 16) & 0xFF, (to >>> 16) & 0xFF, clamped));
+        int g = (int) (this.lerpChannel((from >>> 8) & 0xFF, (to >>> 8) & 0xFF, clamped));
+        int b = (int) (this.lerpChannel(from & 0xFF, to & 0xFF, clamped));
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private float lerpChannel(int from, int to, float t) {
+        return from + (to - from) * t;
+    }
+
+    private void drawSunIcon(GuiGraphics guiGraphics, int x, int y) {
+        guiGraphics.fill(x + 2, y + 1, x + 5, y + 4, 0xFFFFDC5E);
+        guiGraphics.fill(x + 1, y + 2, x + 2, y + 3, 0xFFFFDC5E);
+        guiGraphics.fill(x + 5, y + 2, x + 6, y + 3, 0xFFFFDC5E);
+        guiGraphics.fill(x + 3, y, x + 4, y + 1, 0xFFFFDC5E);
+        guiGraphics.fill(x + 3, y + 4, x + 4, y + 5, 0xFFFFDC5E);
+    }
+
+    private void drawMoonIcon(GuiGraphics guiGraphics, int x, int y) {
+        guiGraphics.fill(x + 2, y + 1, x + 5, y + 4, 0xFFE6ECFF);
+        guiGraphics.fill(x + 4, y + 1, x + 5, y + 4, DAY_COLOR);
     }
 
     private int[] getDisplayStartTicks() {
