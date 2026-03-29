@@ -1,25 +1,23 @@
+2026.3.29
 
-Installation information
-=======
+这整个项目是为了服务器玩法而构建的，灵感来自于以下：
 
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+1.minecraft很多方块不能直接大量获取，只能通过交易。而长期游玩的目的只能是做产线/造建筑，需要大量方块。
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+2.很多做饭mod比如农夫乐事等等，只是会追求做饭本身，但是做完了各种菜，玩法马上会变得乏味，这是因为总有更好的回复饱食度的食物，有些精致料理的烹饪显得没有价值。
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+3.很多整合包不带有主线性质的东西和地图，缺乏引导。（在引导这方面我认为做的最好是海岛寿司店和落幕曲）并且npc的生成有点傻，比如亡者世界里面的npc，实际上的功能只是一个任务点，并不能自主移动。
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+4.大模型可以接入剧本生成，但目前来看还是静态生成比较好。
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+5.做点二次元。
+
+
+
+## 1.0版本
+
+1.0整个版本主要是围绕核心功能去构建，现在已经做的有巡逻点切换，npc背包，npc对话，npc好感度。
+
+以后：
+
+会加入交易UI界面。再做出一个能够联调的demo。也许会加入日历系统（可以用日历mod来构建，但是会有依赖的问题，所以得让模组在**没有**静谧四季的情况下也能正常运行，只是缺少季节和日期功能）,并且加入ftb任务系统和成就。再后面的后面就是调整ai美术还有界面美化了
