@@ -5,21 +5,44 @@ portrait=hinanawi_tenshi.png
 start=start
 
 [node start]
-text=你来得正好。\n要听听今天的新闻吗？
+text=哦？又是你。\n今天想和天界的我聊点什么？
 functions=set_mainhand_item|minecraft:diamond_sword|1
-option=要，讲讲看->news
 option=先打个招呼->hello
+option=你最近在忙什么？->daily
+option=幻想乡最近会出事吗？->future
+option=送你一颗钻石（提升好感）->gift_offer
 option=不了，我先走了->END
 
 [node hello]
-text=哼，礼貌不错。\n我是比那名居天子。
-next=news
+text=礼貌还不错。\n记住了，我是比那名居天子。
+next=start
 
-[node news]
-text=今天幻想乡风平浪静。\n不过我总觉得马上会有有趣的事发生。
-option=那我再问一个问题->question
-option=谢谢，回头见->END
+[node daily]
+text=最近嘛……看云，听风，顺便观察地上的人类。\n你们总能整出点意料之外的事。
+option=听起来你很无聊->boring
+option=那我给你找点乐子->gift_offer
+option=我换个话题->start
 
-[node question]
-text=你可以继续在这个 txt 里添加节点和分支。\n改完后重新右键我就会读取新剧情。
-next=END
+[node boring]
+text=无聊？不。\n只是暴风雨来临前，空气总会先安静一会儿。
+next=start
+
+[node future]
+text=平静只是表象。\n地脉和天象最近都有点不对劲，最好提前准备。
+option=听起来有点可怕->advice
+option=我明白了->start
+
+[node advice]
+text=别慌。\n背包里多带点食物和方块，总比空手强。
+next=start
+
+[node gift_offer]
+text=你要给我礼物？\n拿出 1 个钻石，我就给你一点“特别评价”。
+option=交出 1 个钻石（好感 +15）->gift_trade
+option=我再考虑一下->start
+
+[node gift_trade]
+text=让我看看你的诚意……
+functions=diamond_for_affection|15|1
+option=继续聊聊->start
+option=先到这里吧->END

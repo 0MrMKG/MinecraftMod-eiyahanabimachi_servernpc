@@ -54,6 +54,7 @@ import net.minecraft.world.entity.monster.AbstractSkeleton;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.RangedAttackMob;
 import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
@@ -79,13 +80,20 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     private static final int BACKPACK_MAX_UNLOCKABLE_SLOTS = 18;
     private static final EntityDataAccessor<Boolean> MOVEMENT_STOPPED =
             SynchedEntityData.defineId(ReimuGoodNpcEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Integer> AFFECTION_POINTS =
+            SynchedEntityData.defineId(ReimuGoodNpcEntity.class, EntityDataSerializers.INT);
     private static final String MOVEMENT_STOPPED_TAG = "MovementStopped";
     private static final String BACKPACK_ITEMS_TAG = "BackpackItems";
     private static final String BACKPACK_MAX_STORAGE_TAG = "BackpackMaxStorage";
+    private static final String AFFECTION_POINTS_TAG = "AffectionPoints";
     private static final String EXTRA_EQUIPMENT_ITEMS_TAG = "ExtraEquipmentItems";
     private static final String ACTIVITY_POINTS_TAG = "ActivityPoints";
     private static final String ACTIVITY_SCHEDULE_TAG = "ActivitySchedule";
     private static final String SCHEDULE_CONFIGURED_TAG = "ScheduleConfigured";
+    private static final int AFFECTION_FULL_DISPLAY_LEVEL = 10;
+    private static final int[] EARLY_LEVEL_AFFECTION_REQUIREMENTS = new int[]{5, 10, 20, 50, 50, 50};
+    private static final int LEVEL_7_AND_AFTER_AFFECTION_REQUIREMENT = 100;
+    private static final int LEVEL_7_BASE_TOTAL_AFFECTION = 185;
     private static final int MAX_ACTIVITY_POINTS = 256;
     private static final int SCHEDULE_STEP_TICKS = 250;
     private static final int DEFAULT_MORNING_WORK_START = 2000;
@@ -144,7 +152,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         this.setPersistenceRequired();
         this.setCanPickUpLoot(true);
         this.setCustomName(this.getDefaultDisplayName().copy());
-        this.setCustomNameVisible(true);
+        this.setCustomNameVisible(false);
     }
 
     protected Component getDefaultDisplayName() {
@@ -155,6 +163,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(MOVEMENT_STOPPED, false);
+        builder.define(AFFECTION_POINTS, 0);
     }
 
     @Override
@@ -348,6 +357,78 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             return;
         }
         this.setBackpackMaxStorage(this.backpackMaxStorage + amount);
+    }
+
+    public int getAffectionPoints() {
+        return this.entityData.get(AFFECTION_POINTS);
+    }
+
+    public void setAffectionPoints(int points) {
+        this.entityData.set(AFFECTION_POINTS, Math.max(0, points));
+    }
+
+    public void addAffectionPoints(int amount) {
+        if (amount == 0) {
+            return;
+        }
+        long updated = (long) this.getAffectionPoints() + amount;
+        if (updated < 0L) {
+            this.setAffectionPoints(0);
+            return;
+        }
+        if (updated > Integer.MAX_VALUE) {
+            this.setAffectionPoints(Integer.MAX_VALUE);
+            return;
+        }
+        this.setAffectionPoints((int) updated);
+    }
+
+    public int getAffectionLevel() {
+        return this.resolveAffectionProgress(this.getAffectionPoints()).level();
+    }
+
+    public int getAffectionProgressInLevel() {
+        return this.resolveAffectionProgress(this.getAffectionPoints()).progress();
+    }
+
+    public int getAffectionRequiredForNextLevel() {
+        return this.resolveAffectionProgress(this.getAffectionPoints()).required();
+    }
+
+    public float getAffectionProgressPercent() {
+        AffectionProgress progress = this.resolveAffectionProgress(this.getAffectionPoints());
+        if (this.shouldDisplayAffectionAsFull()) {
+            return 1.0F;
+        }
+        if (progress.required() <= 0) {
+            return 1.0F;
+        }
+        return Mth.clamp(progress.progress() / (float) progress.required(), 0.0F, 1.0F);
+    }
+
+    public boolean shouldDisplayAffectionAsFull() {
+        return this.getAffectionLevel() >= AFFECTION_FULL_DISPLAY_LEVEL;
+    }
+
+    private AffectionProgress resolveAffectionProgress(int totalAffectionPoints) {
+        int points = Math.max(0, totalAffectionPoints);
+        if (points >= LEVEL_7_BASE_TOTAL_AFFECTION) {
+            int afterLevel6 = points - LEVEL_7_BASE_TOTAL_AFFECTION;
+            int level = 7 + (afterLevel6 / LEVEL_7_AND_AFTER_AFFECTION_REQUIREMENT);
+            int progress = afterLevel6 % LEVEL_7_AND_AFTER_AFFECTION_REQUIREMENT;
+            return new AffectionProgress(level, progress, LEVEL_7_AND_AFTER_AFFECTION_REQUIREMENT);
+        }
+
+        int level = 1;
+        int remaining = points;
+        for (int required : EARLY_LEVEL_AFFECTION_REQUIREMENTS) {
+            if (remaining < required) {
+                return new AffectionProgress(level, remaining, required);
+            }
+            remaining -= required;
+            level++;
+        }
+        return new AffectionProgress(level, remaining, LEVEL_7_AND_AFTER_AFFECTION_REQUIREMENT);
     }
 
     public boolean isBackpackSlotUnlocked(int backpackSlotIndex) {
@@ -641,8 +722,10 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     @Override
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
+        this.setCustomNameVisible(false);
         this.reassessWeaponGoal();
         this.setMovementStopped(compound.getBoolean(MOVEMENT_STOPPED_TAG));
+        this.setAffectionPoints(compound.getInt(AFFECTION_POINTS_TAG));
         this.backpackMaxStorage = Mth.clamp(compound.getInt(BACKPACK_MAX_STORAGE_TAG), 0, BACKPACK_MAX_UNLOCKABLE_SLOTS);
         if (compound.contains(BACKPACK_ITEMS_TAG, Tag.TAG_LIST)) {
             this.backpackContainer.fromTag(compound.getList(BACKPACK_ITEMS_TAG, Tag.TAG_COMPOUND), this.registryAccess());
@@ -722,6 +805,7 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         compound.putBoolean(MOVEMENT_STOPPED_TAG, this.isMovementStopped());
+        compound.putInt(AFFECTION_POINTS_TAG, this.getAffectionPoints());
         compound.putInt(BACKPACK_MAX_STORAGE_TAG, this.backpackMaxStorage);
         compound.put(BACKPACK_ITEMS_TAG, this.backpackContainer.createTag(this.registryAccess()));
         compound.put(EXTRA_EQUIPMENT_ITEMS_TAG, this.extraEquipmentContainer.createTag(this.registryAccess()));
@@ -848,6 +932,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         String functionName = parts[0].trim().toLowerCase(Locale.ROOT);
         switch (functionName) {
             case "set_mainhand_item", "give_mainhand_item", "mainhand_item" -> this.applySetMainHandItem(parts);
+            case "add_affection", "add_favorability", "affection_add", "favorability_add" -> this.applyAddAffection(parts);
+            case "set_affection", "set_favorability", "affection_set", "favorability_set" -> this.applySetAffection(parts);
+            case "diamond_for_affection", "gift_diamond_affection", "trade_diamond_affection" -> this.applyDiamondForAffection(player, parts);
             default -> eiyahanabimachiservernpc.LOGGER.warn("Unknown dialogue function '{}'", functionCall);
         }
     }
@@ -885,6 +972,121 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
         }
         count = Mth.clamp(count, 1, item.getDefaultMaxStackSize());
         this.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(item, count));
+    }
+
+    private void applyAddAffection(String[] parts) {
+        Integer delta = this.tryParseInteger(parts, 1);
+        if (delta == null) {
+            eiyahanabimachiservernpc.LOGGER.warn("Invalid add_affection argument");
+            return;
+        }
+        this.addAffectionPoints(delta);
+    }
+
+    private void applySetAffection(String[] parts) {
+        Integer points = this.tryParseInteger(parts, 1);
+        if (points == null) {
+            eiyahanabimachiservernpc.LOGGER.warn("Invalid set_affection argument");
+            return;
+        }
+        this.setAffectionPoints(points);
+    }
+
+    private void applyDiamondForAffection(ServerPlayer player, String[] parts) {
+        int affectionGain = 15;
+        int requiredDiamonds = 1;
+
+        if (parts.length >= 2) {
+            Integer parsedGain = this.tryParseInteger(parts, 1);
+            if (parsedGain == null || parsedGain <= 0) {
+                eiyahanabimachiservernpc.LOGGER.warn("Invalid affection gain for diamond_for_affection");
+                return;
+            }
+            affectionGain = parsedGain;
+        }
+
+        if (parts.length >= 3) {
+            Integer parsedDiamondCount = this.tryParseInteger(parts, 2);
+            if (parsedDiamondCount == null || parsedDiamondCount <= 0) {
+                eiyahanabimachiservernpc.LOGGER.warn("Invalid diamond count for diamond_for_affection");
+                return;
+            }
+            requiredDiamonds = parsedDiamondCount;
+        }
+
+        if (!this.consumePlayerItem(player, Items.DIAMOND, requiredDiamonds)) {
+            player.displayClientMessage(
+                    Component.translatable(
+                            "message." + eiyahanabimachiservernpc.MODID + ".affection_trade_need_diamond",
+                            requiredDiamonds
+                    ),
+                    true
+            );
+            return;
+        }
+
+        this.addAffectionPoints(affectionGain);
+        player.displayClientMessage(
+                Component.translatable(
+                        "message." + eiyahanabimachiservernpc.MODID + ".affection_trade_success",
+                        requiredDiamonds,
+                        affectionGain,
+                        this.getAffectionLevel()
+                ),
+                true
+        );
+    }
+
+    private boolean consumePlayerItem(ServerPlayer player, Item item, int requiredCount) {
+        Inventory inventory = player.getInventory();
+        if (this.countItem(inventory, item) < requiredCount) {
+            return false;
+        }
+
+        int remaining = requiredCount;
+        for (int i = 0; i < inventory.getContainerSize() && remaining > 0; i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (!stack.is(item)) {
+                continue;
+            }
+            int removeCount = Math.min(remaining, stack.getCount());
+            stack.shrink(removeCount);
+            if (stack.isEmpty()) {
+                inventory.setItem(i, ItemStack.EMPTY);
+            }
+            remaining -= removeCount;
+        }
+
+        inventory.setChanged();
+        player.containerMenu.broadcastChanges();
+        return true;
+    }
+
+    private int countItem(Inventory inventory, Item item) {
+        int total = 0;
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.is(item)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    @Nullable
+    private Integer tryParseInteger(String[] parts, int index) {
+        if (index < 0 || index >= parts.length) {
+            return null;
+        }
+        String token = parts[index].trim();
+        if (token.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(token);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private void tickDialogueFocus() {
@@ -1670,6 +1872,9 @@ public class ReimuGoodNpcEntity extends Monster implements RangedAttackMob {
             }
             return WORK;
         }
+    }
+
+    private record AffectionProgress(int level, int progress, int required) {
     }
 
     private record ScheduleEntry(int startTick, ActivityType activityType) {

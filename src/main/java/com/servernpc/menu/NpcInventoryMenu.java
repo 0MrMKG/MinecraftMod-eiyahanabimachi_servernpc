@@ -111,6 +111,26 @@ public class NpcInventoryMenu extends AbstractContainerMenu {
         return this.npcEntityId;
     }
 
+    public int getAffectionLevel() {
+        return this.npc != null ? this.npc.getAffectionLevel() : 1;
+    }
+
+    public int getAffectionProgressInLevel() {
+        return this.npc != null ? this.npc.getAffectionProgressInLevel() : 0;
+    }
+
+    public int getAffectionRequiredForNextLevel() {
+        return this.npc != null ? this.npc.getAffectionRequiredForNextLevel() : 5;
+    }
+
+    public float getAffectionProgressPercent() {
+        return this.npc != null ? this.npc.getAffectionProgressPercent() : 0.0F;
+    }
+
+    public boolean shouldDisplayAffectionAsFull() {
+        return this.npc != null && this.npc.shouldDisplayAffectionAsFull();
+    }
+
     @Override
     public boolean stillValid(Player player) {
         if (this.npc == null) {
